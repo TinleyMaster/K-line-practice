@@ -30,6 +30,13 @@ export const config = {
 
   autoInitDb: String(process.env.AUTO_INIT_DB ?? 'true').toLowerCase() === 'true',
 
+  // 启动时自动跑增量迁移（v6：账号维度 + 开仓设置扩展列）。
+  //
+  // 与 AUTO_INIT_DB **分开**：建表要谨慎（生产建议手动 db:init），
+  // 但补列是纯增量、全幂等（ADD COLUMN IF NOT EXISTS）—— 漏跑的后果是
+  // 老库升级上来后登录/开仓扩展字段直接 500，所以默认开启。
+  autoMigrate: String(process.env.AUTO_MIGRATE ?? 'true').toLowerCase() === 'true',
+
   // 启动预热：把已登记标的提前拉进内存缓存（跨机 DB RTT 高时收益明显）
   prewarm: String(process.env.PREWARM ?? 'true').toLowerCase() === 'true',
   prewarmLimit: Number(process.env.PREWARM_LIMIT || 1200),

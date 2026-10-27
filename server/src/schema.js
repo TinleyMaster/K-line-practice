@@ -1,6 +1,32 @@
 import { PRAC } from './config.js';
 
 /**
+ * v6 账号体系 DDL（单独抽一份）。
+ *
+ * 为什么单独抽：migrateV6 要给 sessions / trades / journal_entries 加
+ * `user_id bigint REFERENCES ...users(id)` 外键列 —— **外键引用的表必须先存在**。
+ * 而老库（v1~v5 已部署）根本没有 users 表，
+ * 所以迁移必须自己先把前置表建出来，不能假设 initSchema 跑过。
+ */
+export const ACCOUNT_TABLES = [
+  `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.users (
+     id            bigserial PRIMARY KEY,
+     username      text UNIQUE NOT NULL,
+     display_name  text NOT NULL DEFAULT '',
+     password_hash text NOT NULL,
+     salt          text NOT NULL,
+     created_at    timestamptz NOT NULL DEFAULT now()
+   )`,
+
+  `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.auth_tokens (
+     token      text PRIMARY KEY,
+     user_id    bigint NOT NULL REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     expires_at timestamptz NOT NULL
+   )`,
+];
+
+/**
  * practice schema 建表 DDL。
  * 铁律：这里所有对象都落在 practice schema 内，
  * 原项目表（biz.asset_klines 等）永远只读，不 ALTER / 不 DELETE / 不 INSERT。
@@ -38,22 +64,9 @@ export const DDL = [
   /* ================= v6：账号体系 =================
    * 两人共用一套练习台，各自的练习数据必须分开存 —— 否则 PK 就没有意义。
    * 密码用 scrypt 加盐哈希（不存明文），token 明文存库但只在登录时签发。
+   * （DDL 见上方 ACCOUNT_TABLES，migrateV6 也要用）
    */
-  `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.users (
-     id            bigserial PRIMARY KEY,
-     username      text UNIQUE NOT NULL,
-     display_name  text NOT NULL DEFAULT '',
-     password_hash text NOT NULL,
-     salt          text NOT NULL,
-     created_at    timestamptz NOT NULL DEFAULT now()
-   )`,
-
-  `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.auth_tokens (
-     token      text PRIMARY KEY,
-     user_id    bigint NOT NULL REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE,
-     created_at timestamptz NOT NULL DEFAULT now(),
-     expires_at timestamptz NOT NULL
-   )`,
+  ...ACCOUNT_TABLES,
 
   `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.sessions (
      id           bigserial PRIMARY KEY,
@@ -277,8 +290,26 @@ export async function migrateMarketDimension(exec) {
  * 幂等：全部用 ADD COLUMN IF NOT EXISTS，重复执行安全。
  */
 export async function migrateV6(exec) {
+  // 前置：账号表必须先存在。
+  // 下面给 sessions/trades/journal_entries 加的 user_id 列带
+  // `REFERENCES users(id)` 外键 —— 引用的表不存在时 PG 直接报
+  // `relation "users" does not exist`，整个迁移中断。
+  // 老库（v1~v5）恰恰没有 users 表，所以这里自己建。
+  for (const ddl of ACCOUNT_TABLES) await exec(ddl);
+
+  // sessions / trades / journal_entries 是 v1 就有的表，老库必然在。
+  // 但「全新库只跑了 db:migrate 没跑 db:init」时它们不存在 ——
+  // 建表是 db:init 的职责，迁移只管补列，所以这里跳过不存在的表（而不是让整个迁移报错中断）。
+  const probe = await exec(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = '${PRAC.schema}'
+        AND table_name IN ('sessions','trades','journal_entries')`,
+  );
+  const exist = new Set((probe?.rows || []).map((r) => r.table_name));
+
   // 账号维度：练习记录按 user_id 隔离
   for (const t of ['sessions', 'trades', 'journal_entries']) {
+    if (!exist.has(t)) continue;
     await exec(
       `ALTER TABLE ${PRAC.schema}.${t}
          ADD COLUMN IF NOT EXISTS user_id bigint REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE`,
@@ -302,16 +333,19 @@ export async function migrateV6(exec) {
     ['notes', `text`],
   ];
   for (const [name, type] of TRADE_COLS) {
+    if (!exist.has('trades')) break;
     await exec(
       `ALTER TABLE ${PRAC.schema}.trades ADD COLUMN IF NOT EXISTS ${name} ${type}`,
     );
   }
 
   // 跳过的复盘标记（关掉弹窗但没写内容）
-  await exec(
-    `ALTER TABLE ${PRAC.schema}.journal_entries
-       ADD COLUMN IF NOT EXISTS skipped boolean NOT NULL DEFAULT false`,
-  );
+  if (exist.has('journal_entries')) {
+    await exec(
+      `ALTER TABLE ${PRAC.schema}.journal_entries
+         ADD COLUMN IF NOT EXISTS skipped boolean NOT NULL DEFAULT false`,
+    );
+  }
 
   console.log('[schema] v6 迁移完成（账号维度 + 开仓设置扩展字段）');
 }

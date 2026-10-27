@@ -588,6 +588,9 @@ cp .env.example .env && vi .env      # DATABASE_URL 指向本机/内网 DB
 # 建表 + 物化
 npm run db:init && npm run db:seed && npm run db:materialize
 
+# 老库升级（v1~v5 → v6）必须跑：补 13 个新列 + user_id，否则登录直接 500
+npm run db:migrate
+
 # 守护（systemd）
 sudo cp deploy/kline-practice.service /etc/systemd/system/
 sudo systemctl daemon-reload

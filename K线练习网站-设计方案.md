@@ -1047,3 +1047,80 @@ v6 的四条退出路径（全部等效为"跳过"）：
 | 6 | 指标参数可视化调参 | ❌ 未做 | 沿用 v3 遗留 #1 |
 | 7 | 指标配置按标的/市场分别记忆 | ❌ 未做 | 沿用 v3 遗留 #2 |
 | 8 | 画线标注 | ❌ 未做 | 沿用 v4 遗留 #3 |
+
+### 17.12 v6.1 补丁：部署升级的阻断级陷阱（推送后自查发现）
+
+v6 推送后复查部署链路，发现一个**会让老库升级直接 500** 的坑 —— 不是功能 bug，
+是**部署路径 bug**：功能在本地全绿，但按部署文档走一遍就崩。
+
+#### 根因
+
+`initSchema` 的 DDL 里虽然写了全部新列，但它是 `CREATE TABLE IF NOT EXISTS`：
+
+| 库状态 | `db:init` 跑完的结果 |
+|---|---|
+| **全新库**（表不存在） | ✅ 建表时带上全部新列，9/9 关键列齐全 |
+| **老库**（v1~v5 已建表） | ❌ `CREATE TABLE IF NOT EXISTS` 是 **no-op**，表已存在 → 新列一个都不会加 |
+
+而生产文档明确写「`AUTO_INIT_DB` 生产建议 `false`，由 `npm run db:init` 手动执行」，
+**`db:init` 当时只调了 `initSchema` + `migrateMarketDimension`，没有 `migrateV6`**。
+`migrateV6` 被埋在 `index.js` 的 `if (config.autoInitDb)` 里 —— 生产关掉这个开关，
+迁移就永远跑不到。
+
+**结果**：老库升级 v6 后，`trades` 缺 13 个新列、`sessions`/`journal_entries` 缺 `user_id`、
+缺 `users`/`auth_tokens` 表 → 登录注册 500、开仓落库报 `column "entry_mode" does not exist`。
+
+#### 修法（三层）
+
+| 层 | 改动 | 作用 |
+|---|---|---|
+| **配置层** | 新增 `AUTO_MIGRATE`（默认 `true`），把 `migrateV6` 从 `autoInitDb` 里**拆出来** | 建表要谨慎（生产手动），但补列是纯增量全幂等，不该跟建表开关绑死 |
+| **脚本层** | `init-db.js` 内置 `migrateV6`；新增 `npm run db:migrate`（只跑迁移 + **自检 9 个关键列**） | 生产手动路径也能覆盖；自检缺一个就 `exit 1` |
+| **健壮层** | `migrateV6` 自己先建 `users`/`auth_tokens`；对不存在的 `sessions`/`trades`/`journal_entries` 跳过 ALTER | 老库**没有** `users` 表 → `ADD COLUMN ... REFERENCES users(id)` 会报 `relation "users" does not exist` 直接中断迁移；全新库只跑 `db:migrate` 也不该崩 |
+
+关键实现：账号表 DDL 从 `DDL` 数组里抽成独立常量 `ACCOUNT_TABLES`，
+`initSchema` 和 `migrateV6` 共用 —— **建表与迁移的依赖关系显式化**。
+
+#### 验证方式：隔离 schema 演练（不碰生产数据）
+
+用 `PRACTICE_SCHEMA=practice_migtest` 建一个临时库，手工 `DROP` 掉
+9 个关键列 + 删 `users`/`auth_tokens` 表，把它降级成 v1~v5 老库形态，再跑各条路径：
+
+| 路径 | 操作 | 关键列 | 结论 |
+|---|---|---|---|
+| A | 全新库 → `db:init` | 9/9 | ✅ |
+| B | 老库 → **只跑 `initSchema`**（= 修复前的行为） | **0/9** | ✅ **原 bug 成功复现** |
+| C | 老库 → `db:init`（已内置 `migrateV6`） | 9/9 | ✅ 修复生效 |
+| D | 老库 → **只跑 `db:migrate`**（不碰 initSchema） | 9/9 | ✅ 独立可用 |
+
+> 演练脚本是临时的（`server/src/scripts/_migtest.mjs`），验证完已删除；
+> 临时 schema `practice_migtest` 已 `DROP SCHEMA ... CASCADE` 清理。
+>
+> **降级顺序有坑**：先 `DROP COLUMN user_id` 再 `DROP TABLE users` —— 反过来会被
+> 外键引用拒绝（`cannot drop table ... because other objects depend on it`）。
+> 第一次演练就栽在这，测出来的"全绿"其实是**全新库路径**，差点误判修复有效。
+
+#### 教训
+
+**功能测试全绿 ≠ 部署路径可用。** 这次的 bug 只在「老库 + 生产配置」这个组合下出现，
+本地开发环境（`AUTO_INIT_DB=true`、表是新建的）永远测不到。
+⇒ 涉及 schema 变更时，**必须演练「升级已有实例」这条路**，而不是只测全新装。
+
+### 17.13 v6.1 验证结果（补丁后全量回归）
+
+| 套件 | 结果 |
+|---|---|
+| v6 API 层 | **45/45** ✅ |
+| v6 浏览器层 | **45/45** ✅ 0 JS 错误 |
+| API 多市场闭环 | **36/36** ✅ |
+| v3 / v4 / v5 | **29 / 34 / 30** ✅ |
+| 浏览器交易闭环 | **5/5** ✅ 0 JS 错误 |
+| 多视口 × 多市场（5 × 3） | **15 组全绿** ✅ 0 溢出 0 JS 错误 |
+| 弹窗可达性 | **15/15** ✅ |
+| **迁移四路径隔离演练** | **4/4** ✅（含原 bug 复现） |
+
+合计约 **254 项**，全部通过。
+
+> 视口报告的字段名是 `horizontalOverflow`（不是 `overflowX`）——
+> 早期解析用错字段名导致 `undefined` 被判成"不溢出"，是**假绿**。
+> 正确解析要同时看主对象（perp）与嵌套的 `spotTab` / `stockTab` 子项。

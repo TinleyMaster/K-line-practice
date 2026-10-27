@@ -8,6 +8,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "db:init": "node src/scripts/init-db.js",
+    "db:migrate": "node src/scripts/migrate.js",
     "db:seed": "node src/scripts/seed.js",
     "db:materialize": "node src/scripts/materialize.js",
     "bench:fetch": "node src/scripts/bench-fetch.js"

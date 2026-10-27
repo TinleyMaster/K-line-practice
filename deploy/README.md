@@ -24,6 +24,7 @@ cp .env.example .env   # 真实 DATABASE_URL 填这里（不要提交）
 | `SOURCE_SCHEMA` / `SOURCE_TABLE` | 原库 K 线表，默认 `biz` / `asset_klines` |
 | `PRACTICE_SCHEMA` | 本项目写入 schema，默认 `practice` |
 | `AUTO_INIT_DB` | 生产建议 `false`，改用 `db:init` 手动建表 |
+| `AUTO_MIGRATE` | 启动时自动跑增量迁移，默认 `true`。补列是纯增量全幂等，**老库升级必须开** |
 
 ### SSL 说明（踩坑点）
 
@@ -39,7 +40,7 @@ pg ≥ 8.23 会把连接串里的 `sslmode=require` 当作 `verify-full`，遇�
 ## 2. 建表、种子、物化
 
 ```bash
-npm run db:init        # 建 practice schema 的 7 张表（幂等）
+npm run db:init        # 建 practice schema 的 9 张表 + 跑迁移（幂等）
 npm run db:seed        # 练习白名单（按近30天成交额取前60）+ 5 套开仓设置
 npm run db:materialize # 物化 1h K 线到 practice.klines
 ```
@@ -54,6 +55,29 @@ npm run db:materialize -- 6 10
 ```
 
 物化后 `practice.klines` 约 200 万行 / 300MB 级别，读取 < 50ms。
+
+---
+
+## 2.1 升级已有部署（v1~v5 → v6）
+
+```bash
+cd /opt/kline-practice
+git pull
+npm ci
+npm run db:migrate     # 补 v6 的列（幂等，跑完自检 9 个关键列）
+npm run build          # 重新构建前端（v6 改了前端）
+sudo systemctl restart kline-practice
+```
+
+**为什么 `db:migrate` 不能省**：
+`db:init` 里的 `CREATE TABLE IF NOT EXISTS` 对**已存在的表是 no-op** ——
+老库的 `trades` 表不会自动多出 13 个新列（开仓设置扩展字段），
+`sessions` / `journal_entries` 也不会自动多出 `user_id`。
+漏跑迁移的症状：登录/注册 500、`trades` 落库报 `column "entry_mode" does not exist`。
+
+> `AUTO_MIGRATE=true`（默认）时，服务启动也会自动跑一遍迁移 —— 相当于双保险。
+> 生产若显式关掉它，就**必须**手动跑 `npm run db:migrate`。
+> `db:init` 里也已内置 `migrateV6`，所以 `npm run db:init` 同样能覆盖。
 
 ---
 

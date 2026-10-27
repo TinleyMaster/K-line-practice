@@ -89,6 +89,10 @@ const server = app.listen(config.port, config.host, async () => {
     } catch (err) {
       console.error('[server] 自动建表失败:', err.message);
     }
+  }
+
+  // 增量迁移：与建表开关分开 —— 老库升级必须跑到，全幂等。
+  if (config.autoMigrate) {
     try {
       await migrateV6((sql) => query(sql));
     } catch (err) {

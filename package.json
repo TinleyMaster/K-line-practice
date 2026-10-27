@@ -13,6 +13,7 @@
     "build": "npm run build -w web",
     "start": "npm run start -w server",
     "db:init": "npm run db:init -w server",
+    "db:migrate": "npm run db:migrate -w server",
     "db:seed": "npm run db:seed -w server",
     "db:materialize": "npm run db:materialize -w server",
     "db:reset": "node server/src/scripts/reset-practice.js",
