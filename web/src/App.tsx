@@ -12,9 +12,12 @@ import { StatsView } from './components/StatsView';
 import { SetupLibrary } from './components/SetupLibrary';
 import { IndicatorPicker } from './components/IndicatorPicker';
 import { StartTimePicker } from './components/StartTimePicker';
+import { AuthPanel } from './components/AuthPanel';
+import { PkView } from './components/PkView';
+import { PendingJournal } from './components/PendingJournal';
 import { fmtPrice, fmtTime } from './engine/bars';
 
-type View = 'practice' | 'stats' | 'setups';
+type View = 'practice' | 'stats' | 'setups' | 'pk';
 /** 当前打开的弹出面板（互斥 —— 两个 fixed 弹窗同时存在会互相盖住） */
 type Popup = 'start' | 'indicators' | null;
 
@@ -23,6 +26,8 @@ export default function App() {
   const [view, setView] = useState<View>('practice');
   const [statsKey, setStatsKey] = useState(0);
   const [popup, setPopup] = useState<Popup>(null);
+  /** 是否展开登录面板 */
+  const [authOpen, setAuthOpen] = useState(false);
 
   useEffect(() => {
     void store.bootstrap();
@@ -116,6 +121,19 @@ export default function App() {
             <span className="muted">当前时间</span>
             <strong>{currentBar ? fmtTime(currentBar.time) : '—'}</strong>
           </div>
+          {store.skippedJournal.length > 0 && (
+            <div className="stat-chip pending-chip" title="有跳过的复盘待补写">
+              <span className="muted">待补复盘</span>
+              <strong className="down">{store.skippedJournal.length}</strong>
+            </div>
+          )}
+          <button
+            className={`btn tiny ${store.user ? 'user-chip' : 'ghost'}`}
+            onClick={() => (store.user ? void store.logout() : setAuthOpen(true))}
+            title={store.user ? '点击登出' : '登录以隔离数据并参与 PK'}
+          >
+            {store.user ? `${store.user.displayName} ▾` : '登录'}
+          </button>
         </div>
       </header>
 
@@ -125,6 +143,9 @@ export default function App() {
         </button>
         <button className={`tab ${view === 'stats' ? 'active' : ''}`} onClick={() => { setView('stats'); setStatsKey((k) => k + 1); }}>
           统计看板
+        </button>
+        <button className={`tab ${view === 'pk' ? 'active' : ''}`} onClick={() => { setView('pk'); setStatsKey((k) => k + 1); }}>
+          胜率 PK
         </button>
         <button className={`tab ${view === 'setups' ? 'active' : ''}`} onClick={() => setView('setups')}>
           设置库
@@ -159,6 +180,7 @@ export default function App() {
                 <ChartPanel
                   symbol={store.symbol}
                   bars1h={store.bars1h}
+                  bars15m={store.bars15m}
                   cursor={store.cursor}
                   startCursor={store.startCursor}
                   openTrade={store.openTrade}
@@ -234,6 +256,7 @@ export default function App() {
                 setups={store.setups}
                 entryPrice={currentPrice}
                 equity={store.equity}
+                bars1h={store.bars1h}
                 disabled={!canTrade}
                 disabledReason={tradeDisabledReason}
                 onOpen={store.openPosition}
@@ -260,6 +283,8 @@ export default function App() {
               currentPrice={currentPrice}
             />
 
+            <PendingJournal />
+
             {store.closedTrades.length > 0 && !store.openTrade && (
               <PositionPanel
                 openTrade={null}
@@ -282,6 +307,12 @@ export default function App() {
         </main>
       )}
 
+      {view === 'pk' && (
+        <main className="full-view">
+          <PkView refreshKey={statsKey} />
+        </main>
+      )}
+
       {view === 'setups' && (
         <main className="full-view">
           <SetupLibrary setups={store.setups} onChanged={() => void store.bootstrap()} />
@@ -289,7 +320,17 @@ export default function App() {
       )}
 
       {store.pendingJournal && (
-        <JournalModal trade={store.pendingJournal} onSave={(p) => void store.saveJournal(p)} />
+        <JournalModal
+          trade={store.pendingJournal}
+          onSave={(p) => void store.saveJournal(p)}
+          onSkip={() => void store.skipJournal()}
+        />
+      )}
+
+      {authOpen && !store.user && (
+        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setAuthOpen(false)}>
+          <AuthPanel onClose={() => setAuthOpen(false)} />
+        </div>
       )}
     </div>
   );

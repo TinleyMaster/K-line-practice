@@ -87,8 +87,11 @@ export async function refreshCoverage(symbol, interval = '1h', market = 'perp') 
  *
  * 用 COPY 而非多值 INSERT：实测跨机写 1162 根要 69s（参数传输 + 逐行解析），
  * COPY 走二进制流，快一个数量级。临时表 + INSERT ... ON CONFLICT 保留了幂等语义。
+ *
+ * @param {string} interval 周期，默认 1h。15m 数据量是 1h 的 4 倍，
+ *   所以必须显式传 —— 不能靠猜。
  */
-export async function upsertExternalBars({ market, symbol, bars, source }) {
+export async function upsertExternalBars({ market, symbol, bars, source, interval = '1h' }) {
   if (!bars?.length) return 0;
   const marketCfg = MARKETS[market];
   if (!marketCfg) throw new Error(`未知 market: ${market}`);
@@ -109,7 +112,7 @@ export async function upsertExternalBars({ market, symbol, bars, source }) {
         [
           csvEscape(market),
           csvEscape(symbol),
-          csvEscape('1h'),
+          csvEscape(interval),
           csvEscape(new Date(b.time).toISOString()),
           numStr(b.open),
           numStr(b.high),
@@ -150,7 +153,7 @@ export async function upsertExternalBars({ market, symbol, bars, source }) {
     );
 
     await client.query('COMMIT');
-    await refreshCoverage(symbol, '1h', market);
+    await refreshCoverage(symbol, interval, market);
     return res.rowCount ?? 0;
   } catch (err) {
     try {
@@ -252,13 +255,17 @@ export async function ensureMaterialized(symbol, { interval = '1h', market = 'pe
   return coverage;
 }
 
-/** 读取 1h K 线（走本地物化缓存） */
-export async function fetch1h(symbol, { limit = 3000, start, end, market = 'perp' } = {}) {
+/**
+ * 读取指定周期的 K 线（走本地物化缓存表）。
+ *
+ * v6 起支持任意 interval（1h / 15m / 5m …），不再写死 1h。
+ */
+export async function fetchBars(symbol, { interval = '1h', limit = 3000, start, end, market = 'perp' } = {}) {
   const COLS =
     'symbol, open_time, open_px, high_px, low_px, close_px, base_vol, quote_vol, trade_count, source';
 
-  const where = ['market = $1', 'symbol = $2', 'interval = \'1h\''];
-  const params = [market, symbol];
+  const where = ['market = $1', 'symbol = $2', 'interval = $3'];
+  const params = [market, symbol, interval];
   if (start) {
     params.push(start);
     where.push(`open_time >= $${params.length}`);
@@ -281,6 +288,9 @@ export async function fetch1h(symbol, { limit = 3000, start, end, market = 'perp
   return rows.map(normalizeBar).sort((a, b) => a.time - b.time);
 }
 
+/** 兼容旧调用点 */
+export const fetch1h = (symbol, opts = {}) => fetchBars(symbol, { ...opts, interval: opts.interval ?? '1h' });
+
 /* ================= 服务端内存缓存 =================
  * 物化表读取本身很快（服务端执行 1.3ms），但跨链路传输大结果集时延极高
  * （实测 3000 行可能 4s~113s 随机跳）。这里做进程内缓存，
@@ -289,9 +299,28 @@ export async function fetch1h(symbol, { limit = 3000, start, end, market = 'perp
  */
 const CACHE_TTL_MS = config.cacheTtlMs;
 const MAX_CACHE_SYMBOLS = 96;
+/**
+ * 空结果（库里确实没有该周期数据）的负缓存 TTL。
+ *
+ * 为什么空结果不能按正常 TTL 缓存：
+ *   回填是持续进行的。若某标的此刻还没有 15m 数据，空结果被缓存 10 分钟，
+ *   那么「回填刚写完 → 用户刷新 → 依然看到 15m 为空」，
+ *   而且服务端还会因 exhausted=true 判定「库里就这么多」而永不穿透重查。
+ *   这就是曾经踩过的「空结果被永久锁死」。
+ *
+ * 折中：空结果只缓存 60 秒 —— 既挡住高频无效查询（每次穿透都是一次跨机往返），
+ * 又能在回填完成后一分钟内自愈。
+ */
+const EMPTY_CACHE_TTL_MS = 60 * 1000;
 /** 单次查询上限，防止前端传入超大 limit 把内存打爆 */
 export const MAX_LIMIT = 5000;
-const barCache = new Map(); // `${market}:${symbol}` -> { bars: Bar[] (ascending), loadedAt: number, exhausted: boolean }
+/**
+ * 缓存键：`${market}:${symbol}:${interval}`
+ *
+ * v6 起必须带 interval —— 1h 与 15m 是两套完全不同的序列，
+ * 共用一个键会让 15m 请求命中 1h 的缓存（返回错数据，且看起来完全正常）。
+ */
+const barCache = new Map(); // `${market}:${symbol}:${interval}` -> { bars: Bar[] (ascending), loadedAt: number, exhausted: boolean }
 
 /**
  * materialize 检查结论的缓存窗口。
@@ -301,7 +330,7 @@ const barCache = new Map(); // `${market}:${symbol}` -> { bars: Bar[] (ascending
 const MATERIALIZE_TTL_MS = 5 * 60 * 1000;
 const materializeState = new Map(); // `${market}:${symbol}:${interval}` -> { checkedAt, coverage }
 
-const cacheKey = (market, symbol) => `${market}:${symbol}`;
+const cacheKey = (market, symbol, interval = '1h') => `${market}:${symbol}:${interval}`;
 
 export function getCacheStats() {
   return {
@@ -310,6 +339,7 @@ export function getCacheStats() {
       key: k,
       bars: v.bars.length,
       exhausted: v.exhausted,
+      empty: !!v.empty,
       ageMs: Date.now() - v.loadedAt,
     })),
   };
@@ -322,10 +352,14 @@ export function clearBarCache(market, symbol) {
     }
   };
   if (market && symbol) {
-    barCache.delete(cacheKey(market, symbol));
+    for (const k of [...barCache.keys()]) {
+      if (k === `${market}:${symbol}:1h` || k.startsWith(`${market}:${symbol}:`)) barCache.delete(k);
+    }
     dropState(symbol);
   } else if (symbol) {
-    for (const k of [...barCache.keys()]) if (k.endsWith(`:${symbol}`)) barCache.delete(k);
+    for (const k of [...barCache.keys()]) {
+      if (k.includes(`:${symbol}:`)) barCache.delete(k);
+    }
     dropState(symbol);
   } else {
     barCache.clear();
@@ -368,11 +402,31 @@ export async function prewarm({ limit = 1200, concurrency = 8 } = {}) {
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, rows.length) }, worker));
-  return { total: rows.length, ok, fail };
+
+  // 15m 预热（核心标的）。数据量是 1h 的 4 倍，只做 BTC/ETH。
+  let deepOk = 0;
+  let deepFail = 0;
+  const deep = config.prewarmDeepSymbols ?? [];
+  if (deep.length) {
+    const deepLimit = config.prewarmDeepLimit ?? 4800;
+    await Promise.all(
+      deep.map(async (sym) => {
+        try {
+          await getBars(sym, { limit: deepLimit, market: 'perp', interval: '15m' });
+          deepOk += 1;
+        } catch (err) {
+          deepFail += 1;
+          console.warn(`[prewarm] 15m ${sym} 失败：${err.message}`);
+        }
+      }),
+    );
+  }
+
+  return { total: rows.length, ok, fail, deepOk, deepFail };
 }
 
 /**
- * 取 1h K 线：优先内存缓存 → 否则物化表读取 → 回填缓存。
+ * 取指定周期的 K 线：优先内存缓存 → 否则物化表读取 → 回填缓存。
  * 返回按时间升序的数组。
  *
  * 缓存命中判定有两个条件（缺一不可地误判）：
@@ -388,20 +442,21 @@ export async function prewarm({ limit = 1200, concurrency = 8 } = {}) {
  * 同步刷新的冷读要 1~2s，用户会明显卡顿；旧数据只差几分钟，
  * 练习场景完全够用。
  */
-export async function get1h(symbol, { limit = 1200, market = 'perp' } = {}) {
+export async function getBars(symbol, { limit = 1200, market = 'perp', interval = '1h' } = {}) {
   limit = Math.max(1, Math.min(Number(limit) || 1200, MAX_LIMIT));
-  const key = cacheKey(market, symbol);
+  const key = cacheKey(market, symbol, interval);
   const hit = barCache.get(key);
   const age = hit ? Date.now() - hit.loadedAt : Infinity;
 
   if (hit && (hit.bars.length >= limit || hit.exhausted)) {
-    if (age < CACHE_TTL_MS) {
+    const ttl = hit.empty ? EMPTY_CACHE_TTL_MS : CACHE_TTL_MS;
+    if (age < ttl) {
       return hit.bars.slice(-limit);
     }
     // 已过期：返回旧数据 + 后台刷新（不阻塞）
     if (!hit.refreshing) {
       hit.refreshing = true;
-      refreshInBackground(key, symbol, limit, market)
+      refreshInBackground(key, symbol, limit, market, interval)
         .catch((err) => console.warn(`[cache] 后台刷新 ${key} 失败：${err.message}`))
         .finally(() => {
           hit.refreshing = false;
@@ -410,16 +465,19 @@ export async function get1h(symbol, { limit = 1200, market = 'perp' } = {}) {
     return hit.bars.slice(-limit);
   }
 
-  await ensureMaterialized(symbol, { market });
-  const bars = await fetch1h(symbol, { limit, market });
+  await ensureMaterialized(symbol, { market, interval });
+  const bars = await fetchBars(symbol, { limit, market, interval });
   storeBars(key, bars, limit);
   return bars;
 }
 
+/** 兼容旧调用点 */
+export const get1h = (symbol, opts = {}) => getBars(symbol, { ...opts, interval: opts.interval ?? '1h' });
+
 /** 后台刷新缓存（stale-while-revalidate 用） */
-async function refreshInBackground(key, symbol, limit, market) {
-  await ensureMaterialized(symbol, { market });
-  const bars = await fetch1h(symbol, { limit, market });
+async function refreshInBackground(key, symbol, limit, market, interval) {
+  await ensureMaterialized(symbol, { market, interval });
+  const bars = await fetchBars(symbol, { limit, market, interval });
   storeBars(key, bars, limit);
 }
 
@@ -427,13 +485,16 @@ async function refreshInBackground(key, symbol, limit, market) {
 function storeBars(key, bars, limit) {
   // 取回数 < limit ⇒ 已到数据末尾，库里没有更多
   const exhausted = bars.length < limit;
+  // 空结果单独标记：走短 TTL 负缓存，避免回填后仍被「锁死为空」
+  const empty = bars.length === 0;
   const hit = barCache.get(key);
   if (hit) {
     hit.bars = bars;
     hit.loadedAt = Date.now();
     hit.exhausted = exhausted;
+    hit.empty = empty;
   } else {
-    barCache.set(key, { bars, loadedAt: Date.now(), exhausted, refreshing: false });
+    barCache.set(key, { bars, loadedAt: Date.now(), exhausted, empty, refreshing: false });
     if (barCache.size > MAX_CACHE_SYMBOLS) {
       // 淘汰最久未使用的
       const oldest = [...barCache.entries()].sort((a, b) => a[1].loadedAt - b[1].loadedAt)[0];
@@ -500,23 +561,41 @@ export function fillGaps(bars, { maxGapHours = 6 } = {}) {
 /**
  * 从外部源回填 spot / stock 数据并写入本地表。
  * 幂等：已存在的 (market, symbol, interval, open_time) 会被更新而非插入重复行。
+ *
+ * @param {object} p
+ * @param {'spot'|'stock'} p.market
+ * @param {string} p.symbol
+ * @param {number} [p.days]      回溯天数
+ * @param {number} [p.maxBars]   最多拉多少根
+ * @param {string} [p.interval]  周期，默认 1h。15m 数据量是 1h 的 4 倍，
+ *   所以 maxBars 的默认值要跟着周期放大。
  */
-export async function backfillExternal({ market, symbol, days = 365, maxBars = 20000 }) {
+export async function backfillExternal({
+  market,
+  symbol,
+  days = 365,
+  maxBars = 20000,
+  interval = '1h',
+}) {
   const startMs = Date.now() - days * 24 * 3600 * 1000;
 
   if (market === 'spot') {
     const bars = await fetchBinanceKlines({
       symbol,
-      interval: '1h',
+      interval,
       market: 'spot',
       startMs,
       maxBars,
     });
-    const n = await upsertExternalBars({ market, symbol, bars, source: 'binance_spot' });
-    return { fetched: bars.length, written: n };
+    const n = await upsertExternalBars({ market, symbol, bars, source: 'binance_spot', interval });
+    return { fetched: bars.length, written: n, interval };
   }
 
   if (market === 'stock') {
+    // 链上 OHLCV 只有 1h（GeckoTerminal 的池子没有 15m 粒度），其他周期直接拒绝
+    if (interval !== '1h') {
+      throw new Error(`链上美股只支持 1h（源只有 1h 粒度），收到 interval=${interval}`);
+    }
     const row = await queryOne(
       `SELECT source_symbol, external_ref FROM ${PRAC.schema}.symbols
         WHERE market = $1 AND symbol = $2`,
@@ -575,8 +654,8 @@ export async function backfillExternal({ market, symbol, days = 365, maxBars = 2
       [market, symbol],
     );
 
-    const n = await upsertExternalBars({ market, symbol, bars, source: 'geckoterminal' });
-    return { fetched: bars.length, written: n, pools: pools.length, filled, longGaps };
+    const n = await upsertExternalBars({ market, symbol, bars, source: 'geckoterminal', interval });
+    return { fetched: bars.length, written: n, pools: pools.length, filled, longGaps, interval };
   }
 
   throw new Error(`backfillExternal 不支持 market=${market}`);
@@ -650,12 +729,12 @@ export function derive4h(bars1h) {
   return out;
 }
 
-/** 统计某 symbol 的 1h 覆盖情况（读本地缓存） */
-export async function coverage(symbol, market = 'perp') {
+/** 统计某 symbol 的覆盖情况（读本地缓存） */
+export async function coverage(symbol, market = 'perp', interval = '1h') {
   const row = await queryOne(
     `SELECT bars, first_time, last_time FROM ${PRAC.schema}.symbol_coverage
-      WHERE market = $1 AND symbol = $2 AND interval = '1h'`,
-    [market, symbol],
+      WHERE market = $1 AND symbol = $2 AND interval = $3`,
+    [market, symbol, interval],
   );
   return {
     bars: row?.bars ?? 0,

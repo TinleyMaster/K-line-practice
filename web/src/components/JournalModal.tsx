@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ClosedTrade } from '../types';
 import { fmtPrice, fmtTime } from '../engine/bars';
 
@@ -10,6 +10,8 @@ interface Props {
     mistakeTag: string | null;
     content: string;
   }) => void;
+  /** 跳过（关掉弹窗不写内容）—— 记为待补，不阻塞继续练习 */
+  onSkip?: () => void;
 }
 
 const EMOTIONS = ['平静', '犹豫', 'FOMO', '贪婪', '恐慌', '懊恼', '报复性'];
@@ -24,7 +26,20 @@ const MISTAKES = [
   '过早止盈',
 ];
 
-export function JournalModal({ trade, onSave }: Props) {
+/**
+ * 强制复盘弹窗。
+ *
+ * v5 的问题：这个弹窗**无法关闭** —— 用户被卡死，只能写完复盘才能继续。
+ * v6 补了三条退出路径：
+ *   1. 右上角 ✕ → 跳过（记为「待补复盘」，不阻塞继续练习）
+ *   2. ESC 键 → 同上
+ *   3. 点遮罩空白 → 同上
+ *
+ * 设计取舍：跳过**不是**无视 —— 它会留一条 skipped 记录，
+ * 纪律统计里算「没复盘」，顶栏显示待补数量，事后可补写。
+ * 完全不让逃会逼用户乱写（写了也不认真）；完全放任不管则纪律指标失真。
+ */
+export function JournalModal({ trade, onSave, onSkip }: Props) {
   const [followedPlan, setFollowedPlan] = useState<boolean | null>(null);
   const [emotions, setEmotions] = useState<string[]>([]);
   const [mistakes, setMistakes] = useState<string[]>([]);
@@ -36,6 +51,15 @@ export function JournalModal({ trade, onSave }: Props) {
 
   const canSave = followedPlan !== null && content.trim().length >= 5;
 
+  // ESC 跳过
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') onSkip?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onSkip]);
+
   const exitText = {
     stop: '止损离场',
     target: '到达目标',
@@ -44,11 +68,27 @@ export function JournalModal({ trade, onSave }: Props) {
   }[trade.exitReason];
 
   return (
-    <div className="modal-backdrop">
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        // 点遮罩空白处 = 跳过
+        if (e.target === e.currentTarget) onSkip?.();
+      }}
+    >
       <div className="modal">
         <div className="modal-head">
           <h3>强制复盘</h3>
-          <span className="muted">不写复盘就不许开下一单 —— 这是练系统的关键</span>
+          <div className="modal-head-right">
+            <span className="muted">不写复盘就不许开下一单</span>
+            <button
+              className="btn tiny ghost modal-close"
+              onClick={onSkip}
+              title="跳过（记为待补复盘，不阻塞继续）"
+              aria-label="跳过复盘"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <div className="trade-summary">
@@ -91,6 +131,13 @@ export function JournalModal({ trade, onSave }: Props) {
           <div className="journal-setup">
             <span className="muted">使用的设置：</span>
             <strong>{trade.setup}</strong>
+          </div>
+        )}
+
+        {trade.notes && (
+          <div className="journal-setup">
+            <span className="muted">开仓备注：</span>
+            <span>{trade.notes}</span>
           </div>
         )}
 
@@ -169,6 +216,12 @@ export function JournalModal({ trade, onSave }: Props) {
         >
           保存复盘
         </button>
+
+        {onSkip && (
+          <button className="btn ghost wide modal-skip" onClick={onSkip}>
+            跳过（记为待补，不阻塞继续）
+          </button>
+        )}
       </div>
     </div>
   );

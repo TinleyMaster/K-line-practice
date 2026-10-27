@@ -54,6 +54,42 @@ export function sliceRevealed(bars: Bar[], cursor: number): Bar[] {
   return bars.slice(0, cursor + 1);
 }
 
+/**
+ * ATR（平均真实波幅）。
+ *
+ * klinecharts 没有内置 ATR 指标，但「按 ATR 设止损」是实战里最常用的止损方式之一
+ * —— 比固定百分比更贴合波动率（BTC 波动大的时候 1% 是噪音，ETH 平稳的时候 1% 又太宽）。
+ *
+ * 公式：TR = max(H-L, |H-prevC|, |L-prevC|)；ATR = TR 的 N 周期 Wilder 平滑。
+ *
+ * @param bars  1h K 线（升序）
+ * @param period ATR 周期，默认 14
+ * @returns 最后一根对应的 ATR；数据不足返回 0
+ */
+export function atr(bars: Bar[], period = 14): number {
+  if (!bars || bars.length < period + 1) return 0;
+  const trs: number[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    const cur = bars[i];
+    const prevClose = bars[i - 1].close;
+    const tr = Math.max(
+      cur.high - cur.low,
+      Math.abs(cur.high - prevClose),
+      Math.abs(cur.low - prevClose),
+    );
+    trs.push(tr);
+  }
+  if (trs.length < period) return 0;
+  // Wilder 平滑：前 period 个取均值，之后递推
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += trs[i];
+  let prev = sum / period;
+  for (let i = period; i < trs.length; i++) {
+    prev = (prev * (period - 1) + trs[i]) / period;
+  }
+  return prev;
+}
+
 /** 价格有效位（用于显示与输入框步进） */
 export function pricePrecision(price: number): number {
   if (!Number.isFinite(price) || price === 0) return 2;
@@ -70,16 +106,21 @@ export function fmtPrice(v: number | null | undefined): string {
   return v.toLocaleString('en-US', { minimumFractionDigits: p, maximumFractionDigits: p });
 }
 
-export function fmtTime(t: number | null | undefined): string {
-  if (!t) return '—';
-  const d = new Date(t);
+export function fmtTime(t: number | string | null | undefined): string {
+  if (t === null || t === undefined || t === '') return '—';
+  // 后端返回的时间是 ISO 字符串，前端本地计算的是 epoch ms —— 两种都收
+  const ms = typeof t === 'string' ? Date.parse(t) : t;
+  if (!Number.isFinite(ms)) return '—';
+  const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export function fmtDate(t: number | null | undefined): string {
-  if (!t) return '—';
-  const d = new Date(t);
+export function fmtDate(t: number | string | null | undefined): string {
+  if (t === null || t === undefined || t === '') return '—';
+  const ms = typeof t === 'string' ? Date.parse(t) : t;
+  if (!Number.isFinite(ms)) return '—';
+  const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }

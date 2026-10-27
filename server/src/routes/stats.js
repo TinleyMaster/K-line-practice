@@ -25,6 +25,11 @@ statsRouter.get('/', async (req, res) => {
       params.push(String(req.query.market).toLowerCase());
       filters.push(`t.market = $${params.length}`);
     }
+    // v6：登录后只统计自己的数据（未登录看全部）
+    if (req.user) {
+      params.push(req.user.id);
+      filters.push(`t.user_id = $${params.length}`);
+    }
     const where = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
     const overall = await queryOne(
@@ -111,10 +116,15 @@ statsRouter.get('/', async (req, res) => {
       jParams.push(String(req.query.market).toLowerCase());
       jFilters.push(`j.market = $${jParams.length}`);
     }
+    if (req.user) {
+      jParams.push(req.user.id);
+      jFilters.push(`j.user_id = $${jParams.length}`);
+    }
     const discipline = await queryOne(
       `SELECT count(*)::int AS journaled,
               count(*) FILTER (WHERE followed_plan IS TRUE)::int AS followed,
-              count(*) FILTER (WHERE followed_plan IS FALSE)::int AS violated
+              count(*) FILTER (WHERE followed_plan IS FALSE)::int AS violated,
+              count(*) FILTER (WHERE j.skipped)::int AS skipped
          FROM ${PRAC.schema}.journal_entries j
         WHERE 1=1 ${jFilters.length ? `AND ${jFilters.join(' AND ')}` : ''}`,
       jParams,
@@ -186,6 +196,7 @@ statsRouter.get('/', async (req, res) => {
         journaled: Number(discipline?.journaled ?? 0),
         followed: Number(discipline?.followed ?? 0),
         violated: Number(discipline?.violated ?? 0),
+        skipped: Number(discipline?.skipped ?? 0),
         adherenceRate: Number(discipline?.journaled ?? 0)
           ? Number(discipline?.followed ?? 0) / Number(discipline?.journaled ?? 0)
           : null,

@@ -35,6 +35,13 @@ export const config = {
   prewarmLimit: Number(process.env.PREWARM_LIMIT || 1200),
   prewarmConcurrency: Number(process.env.PREWARM_CONCURRENCY || 8),
 
+  // 15m 预热标的（逗号分隔）。15m 数据量是 1h 的 4 倍，只给核心标的做。
+  prewarmDeepSymbols: String(process.env.PREWARM_DEEP_SYMBOLS || 'BTCUSDT,ETHUSDT')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean),
+  prewarmDeepLimit: Number(process.env.PREWARM_DEEP_LIMIT || 4800),
+
   // 内存缓存存活时长（毫秒）。超过后走 stale-while-revalidate：
   // 先返回旧数据，后台静默刷新，用户不卡顿。
   cacheTtlMs: Number(process.env.CACHE_TTL_MS || 10 * 60 * 1000),

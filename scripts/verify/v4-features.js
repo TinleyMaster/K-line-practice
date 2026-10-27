@@ -103,17 +103,22 @@ try {
       active: b.classList.contains('active'),
     })),
   );
+  // v6 起周期档位从 2 档（4h/1h）扩到 3 档（15m/1h/4h），
+  // 且默认档位从 4h 改为 1h（需求：默认显示 1h，往左 15m，往右 4h）。
   log(
-    '周期 Tab 为 4h / 1h 两项',
-    tabs.length === 2 && tabs[0].text.startsWith('4h') && tabs[1].text.startsWith('1h'),
+    '周期 Tab 为 15m / 1h / 4h 三项（从左到右 = 更细 → 更粗）',
+    tabs.length === 3 &&
+      tabs[0].text.startsWith('15m') &&
+      tabs[1].text.startsWith('1h') &&
+      tabs[2].text.startsWith('4h'),
     JSON.stringify(tabs),
   );
-  log('默认停在 4h 趋势', tabs[0].selected === 'true' && tabs[0].active, JSON.stringify(tabs[0]));
+  log('默认停在 1h 入场', tabs[1].selected === 'true' && tabs[1].active, JSON.stringify(tabs[1]));
 
   const periodLabel4h = await page.evaluate(
     () => document.querySelector('.market-period')?.textContent?.trim(),
   );
-  log('行情头显示当前周期 4h', periodLabel4h === '4h', String(periodLabel4h));
+  log('行情头显示当前周期 1h', periodLabel4h === '1h', String(periodLabel4h));
 
   // 切到 1h
   await page.evaluate(() => {

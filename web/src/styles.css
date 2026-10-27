@@ -313,7 +313,29 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-/* 周期切换（币安周期行） */
+/* 周期切换（币安周期行）
+   顺序：15m（精入场）→ 1h（入场）→ 4h（趋势）
+   左右箭头 = 更细 / 更粗，默认停在 1h */
+.period-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.period-arrow {
+  min-width: 24px;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+.period-arrow:hover:not(:disabled) {
+  color: var(--accent);
+}
+
 .period-tabs {
   display: flex;
   gap: 2px;
@@ -335,7 +357,7 @@ body {
   transition: color 0.12s;
 }
 
-.period-tab:hover {
+.period-tab:hover:not(:disabled) {
   color: var(--text);
 }
 
@@ -343,6 +365,19 @@ body {
   color: var(--accent);
   border-bottom-color: var(--accent);
   font-weight: 600;
+}
+
+.period-tab.disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+/* 图表内的提示条（如「该标的暂无 15m 数据」） */
+.chart-note {
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
 }
 
 .period-main {
@@ -2311,5 +2346,289 @@ body.popup-open .ind-panel {
   body.popup-open .replay-controls {
     opacity: 0.25;
     pointer-events: none;
+  }
+}
+
+/* ============================================================
+   v6：登录 / PK / 待补复盘 / 开仓设置扩展
+   ============================================================ */
+
+/* ---------- 预设按钮行（止损 % / ATR 倍数 / R 倍数） ---------- */
+.preset-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin: -4px 0 8px;
+}
+
+.preset-row .btn {
+  min-width: 40px;
+}
+
+/* ---------- 分段控件（seg） ---------- */
+.btn-row.seg .btn {
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+/* ---------- 开仓面板的成本警告 ---------- */
+.hint.warn-hint {
+  color: var(--warn, #f0b90b);
+  border-color: rgba(240, 185, 11, 0.3);
+}
+
+/* ---------- 登录卡片 ---------- */
+.auth-panel {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 16px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.auth-head .brand-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.auth-tabs .btn {
+  flex: 1;
+}
+
+/* ---------- 顶栏用户按钮 ---------- */
+.user-chip {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pending-chip strong {
+  color: var(--down);
+}
+
+/* ---------- 胜率 PK ---------- */
+.pk-header {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.pk-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.pk-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.pk-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px;
+}
+
+.pk-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.pk-row:last-child {
+  border-bottom: none;
+}
+
+.pk-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pk-side.left {
+  justify-content: flex-end;
+}
+
+.pk-side.right {
+  justify-content: flex-start;
+}
+
+.pk-val {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pk-val.lead {
+  color: var(--accent);
+}
+
+.pk-bar-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  min-width: 40px;
+}
+
+.pk-side.left .pk-bar-track {
+  justify-content: flex-end;
+}
+
+.pk-bar-fill {
+  height: 100%;
+  background: var(--text-dim);
+  border-radius: 3px;
+  transition: width 0.25s;
+}
+
+.pk-bar-fill.lead {
+  background: var(--accent);
+}
+
+.pk-dim {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.pk-dim-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.pk-tie {
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0 4px;
+}
+
+.pk-foot {
+  margin-top: 12px;
+  font-size: 11px;
+}
+
+/* ---------- 待补复盘 ---------- */
+.pending-journal {
+  border-color: rgba(240, 185, 11, 0.35);
+}
+
+.pending-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.pending-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.pending-editor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- 复盘弹窗的关闭 / 跳过 ---------- */
+.modal-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.modal-skip {
+  margin-top: 8px;
+  color: var(--text-dim);
+}
+
+/* ---------- 窄屏适配 ---------- */
+@media (max-width: 767px) {
+  .pk-row {
+    grid-template-columns: 1fr 84px 1fr;
+    gap: 8px;
+  }
+
+  .pk-val {
+    font-size: 13px;
+  }
+
+  .auth-card {
+    padding: 16px;
+  }
+
+  .period-arrow {
+    min-width: 30px;
+    height: 32px;
   }
 }

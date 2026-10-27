@@ -5,13 +5,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 import { healthCheck, query } from './db.js';
-import { initSchema } from './schema.js';
+import { initSchema, migrateV6 } from './schema.js';
 import { prewarm } from './services/klineService.js';
 import { symbolsRouter } from './routes/symbols.js';
 import { klinesRouter } from './routes/klines.js';
 import { setupsRouter } from './routes/setups.js';
 import { practiceRouter } from './routes/practice.js';
 import { statsRouter } from './routes/stats.js';
+import { authRouter } from './routes/auth.js';
+import { attachUser } from './services/authService.js';
 
 const app = express();
 
@@ -53,6 +55,9 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/symbols', symbolsRouter);
 app.use('/api/klines', klinesRouter);
 app.use('/api/setups', setupsRouter);
+// 账号解析中间件：解析 Bearer token → req.user（未登录不拦截）
+app.use('/api', attachUser);
+app.use('/api/auth', authRouter);
 app.use('/api', practiceRouter);
 app.use('/api/stats', statsRouter);
 
@@ -83,6 +88,11 @@ const server = app.listen(config.port, config.host, async () => {
       console.log('[server] practice schema 校验/建表完成');
     } catch (err) {
       console.error('[server] 自动建表失败:', err.message);
+    }
+    try {
+      await migrateV6((sql) => query(sql));
+    } catch (err) {
+      console.error('[server] v6 迁移失败:', err.message);
     }
   }
 

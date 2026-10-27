@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Bar, Market } from '../types';
+import type { Bar, ChartPeriod, Market } from '../types';
 import { fmtPrice } from '../engine/bars';
 import { dir, fmtCompact, fmtPct, fmtSigned } from '../engine/format';
 
@@ -10,7 +10,7 @@ interface Props {
   /** 已揭示的 1h K 线（游标处的切片） */
   revealed: Bar[];
   /** 当前显示周期 */
-  period: '4h' | '1h';
+  period: ChartPeriod;
 }
 
 /**

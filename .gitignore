@@ -8,3 +8,4 @@ dist/
 .workbuddy/
 shots/
 *.tsbuildinfo
+.tmp/

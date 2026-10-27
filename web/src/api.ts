@@ -3,19 +3,49 @@ import type {
   KlinesResponse,
   Market,
   MarketInfo,
+  PkResponse,
   SessionInfo,
   Setup,
   StatsResponse,
   SymbolInfo,
+  User,
 } from './types';
 
 const BASE = '/api';
 
+/**
+ * 登录 token（v6）。
+ *
+ * 存 localStorage：刷新不丢。同一台机器两人共用浏览器时用不同浏览器/无痕窗口即可。
+ */
+const TOKEN_KEY = 'kline-practice-token';
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* 隐私模式下 localStorage 不可用，忽略 */
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((init?.headers as Record<string, string>) ?? {}),
+  };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
     try {
@@ -42,10 +72,10 @@ export const api = {
       `/klines?symbol=${encodeURIComponent(symbol)}&market=${market}&interval=both&limit=${limit}`,
     ),
 
-  backfill: (market: Market, symbol: string, days = 365) =>
+  backfill: (market: Market, symbol: string, days = 365, interval = '1h') =>
     request<Record<string, unknown>>('/klines/backfill', {
       method: 'POST',
-      body: JSON.stringify({ market, symbol, days }),
+      body: JSON.stringify({ market, symbol, days, interval }),
     }),
 
   syncStockSymbols: (limit = 40) =>
@@ -79,6 +109,10 @@ export const api = {
   createJournal: (payload: Record<string, unknown>) =>
     request<JournalEntry>('/journal', { method: 'POST', body: JSON.stringify(payload) }),
 
+  /** 补写之前跳过的复盘 */
+  updateJournal: (id: number, payload: Record<string, unknown>) =>
+    request<JournalEntry>(`/journal/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+
   journal: () => request<JournalEntry[]>('/journal'),
 
   stats: (params?: { symbol?: string; setup?: string }) => {
@@ -88,4 +122,23 @@ export const api = {
     const qs = q.toString();
     return request<StatsResponse>(`/stats${qs ? `?${qs}` : ''}`);
   },
+
+  /* ---- 账号（v6）---- */
+  register: (username: string, password: string, displayName?: string) =>
+    request<{ user: User; token: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, displayName }),
+    }),
+
+  login: (username: string, password: string) =>
+    request<{ user: User; token: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+
+  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+
+  me: () => request<{ user: User | null }>('/auth/me'),
+
+  pk: () => request<PkResponse>('/auth/pk'),
 };

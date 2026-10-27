@@ -97,6 +97,13 @@ try {
 
   console.log('\n═══ ① 起点前 K 线可见 + 指标预热 ═══');
 
+  // v6 起默认档位是 1h（需求：默认显示 1h），而本段断言的是 4h 的专属口径。
+  // 必须先显式切到 4h 再读，否则读到的是 1h 的状态（visible.from / barSpace 全对不上）。
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.period-tab')].find((x) => x.textContent.trim().startsWith('4h'))?.click();
+  });
+  await sleep(1800);
+
   const c4 = await readChart(page);
   log('4h 图表实例可用', !!c4, JSON.stringify(c4?.visible));
   log(

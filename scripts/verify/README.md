@@ -28,12 +28,14 @@ npm start
 | `v3-features.js` | **v3 增量功能**：开仓面板折叠 / 自定义练习起点 / 指标自选 / 持久化 | `shots/v3-*.png` | 29/29 通过 |
 | `v4-features.js` | **v4 增量功能**：4h/1h 单图切换 / K 线后退 / 点击 K 线详情 / 币安配色 | `shots/v4-*.png` | 34/34 通过 |
 | `v5-features.js` | **v5 增量功能**：预热窗口（起点前历史可见）/ 指标有值 / 绿涨红跌 / 播放配置折叠 / 点击命中重做 | `shots/v5-*.png` | 30/30 通过 |
+| `v6-api.js` | **v6 API 层**：15m 接口与 1h 对齐 / BTC-ETH 覆盖天数 / 注册登录登出 / 账号数据隔离 / PK 9 维度 / 复盘跳过与补写 | stdout 汇总 | 45/45 通过 |
+| `v6-features.js` | **v6 浏览器层**：15m⇄1h⇄4h 方向切换 / 无 15m 标的置灰 / 注册登录 / PK 页 / 9 类开仓设置 / 复盘四条关闭路径 | `shots/v6-*.png` | 45/45 通过 |
 | `popup-reachability.js` | **弹窗可达性**：5 视口 × 2 弹窗，验证底部「完成」按钮真的点得到 | stdout | 15/15 通过 |
 
 ## 跑法
 
 ```bash
-npm run verify              # 一键跑全套（api + flow + viewport + v3 + v4 + v5 + popup）
+npm run verify              # 一键跑全套（api + flow + viewport + v3 + v4 + v5 + v6api + v6ui + popup）
 
 node scripts/verify/e2e-markets.js          # API 闭环
 node scripts/verify/flow2.js                 # 浏览器交易闭环
@@ -42,6 +44,8 @@ node scripts/verify/v3-features.js           # v3 增量功能
 node scripts/verify/popup-reachability.js    # 弹窗可达性
 node scripts/verify/v4-features.js           # v4 增量功能
 node scripts/verify/v5-features.js           # v5 增量功能
+node scripts/verify/v6-api.js                # v6 API 层
+node scripts/verify/v6-features.js           # v6 浏览器层
 ```
 
 ## 环境变量
@@ -52,7 +56,7 @@ node scripts/verify/v5-features.js           # v5 增量功能
 | `OUT_DIR` | `./shots` | 截图与报告输出目录 |
 | `CHROME_PATH` | Playwright chromium | Chromium 可执行文件路径 |
 
-## 七个坑（别重复踩）
+## 十个坑（别重复踩）
 
 1. **不要用 `| head` / `| tail` 截断输出**：管道关闭会触发 SIGPIPE 把 node 进程杀掉，
    报告文件直接丢失（踩过两次）。要精简就读 `shots/report.json`，或把输出重定向到文件。
@@ -78,4 +82,17 @@ node scripts/verify/v5-features.js           # v5 增量功能
 7. **断言必须锚定在真实变化的量上**。v4 的点击测试就是反面教材：
    悬停不跟随 → 横向扫 7 个位置扫到的都是最后一根 → 「点的」和「断言的」恰好同一根 →
    测试通过但功能早就坏了。**写断言前先确认那个量真的会变**（如「不同 x 得到不同时间戳」）。
+8. **受控 text/password input 不能用「原生 setter + dispatchEvent('input')」填**。
+   React 19 对这类 input 有 value tracker：绕过原生 setter 改 value 时，
+   React 认为值没变 → `onChange` 不触发 → state 没更新 → 提交时拿到空值，**且不报错**。
+   必须用真实键盘输入（`el.click()` + `el.type()`）。
+   ⚠️ `number` input 不受影响（flow2.js 填数字就是这么干的）—— 别把两套混用。
+9. **`form.requestSubmit()` 在 React 19 下不可靠**：`e.preventDefault()` 变成异步生效，
+   可能拦不住原生提交 → 页面导航 → 整个前端状态被重置。
+   直接 `page.click('button[type=submit]')` 更稳，也更接近真实用户行为。
+10. **驱动业务链路优先用 store 钩子，而不是 DOM 选择器**。
+    `usePracticeStore` 已挂到 `window.__practiceStore`（与 `window.__klineChart` 同一惯例），
+    `window.__practiceStore.getState().openPosition(...)` / `.closePosition('manual')`
+    比在页面上猜「哪个按钮是平仓」可靠得多 —— 页面上平仓语义有多个入口，
+    DOM 猜测失败时很难分辨是产品问题还是脚本问题。
 

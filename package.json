@@ -23,8 +23,10 @@
     "verify:v3": "node scripts/verify/v3-features.js",
     "verify:v4": "node scripts/verify/v4-features.js",
     "verify:v5": "node scripts/verify/v5-features.js",
+    "verify:v6api": "node scripts/verify/v6-api.js",
+    "verify:v6ui": "node scripts/verify/v6-features.js",
     "verify:popup": "node scripts/verify/popup-reachability.js",
-    "verify": "npm run verify:api && npm run verify:flow && npm run verify:viewport && npm run verify:v3 && npm run verify:v4 && npm run verify:v5 && npm run verify:popup"
+    "verify": "npm run verify:api && npm run verify:flow && npm run verify:viewport && npm run verify:v3 && npm run verify:v4 && npm run verify:v5 && npm run verify:v6api && npm run verify:v6ui && npm run verify:popup"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

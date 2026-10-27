@@ -9,7 +9,7 @@ import {
   type KLineData,
   type Styles,
 } from 'klinecharts';
-import type { Bar, OpenTrade } from '../types';
+import type { Bar, ChartPeriod, OpenTrade } from '../types';
 import { derive4h, fmtPrice, fmtTime, pricePrecision, FOUR_HOURS, HOUR } from '../engine/bars';
 import { dir, fmtCompact, fmtPct, fmtSigned } from '../engine/format';
 import { getIndicatorSpec, splitByGroup, type IndicatorSpec } from '../engine/indicators';
@@ -17,10 +17,8 @@ import { getIndicatorSpec, splitByGroup, type IndicatorSpec } from '../engine/in
 const CANDLE_PANE = 'candle_pane';
 const TRADE_GROUP = 'trade-lines';
 
-export type ChartPeriod = '4h' | '1h';
-
 /**
- * 预热窗口：练习起点之前保留多少根 1h K 线喂给图表。
+ * 预热窗口：练习起点之前保留多少根 1h K 线喂给图表（1h / 4h 口径）。
  *
  * 为什么必须留：技术指标（MA60 / BOLL / EMA…）需要足够的历史才能算出值。
  * 如果只喂「起点之后」的数据，起点那根的指标全是空的 —— 用户看到的第一屏
@@ -29,15 +27,29 @@ export type ChartPeriod = '4h' | '1h';
  *   - 4h：480 根 1h = 120 根 4h（够 MA60，也够看趋势结构）
  *   - 1h：240 根 1h（够 MA60）
  *
- * 注意这只是「喂给图表的历史」，不涉及未来 —— 图表数据右端永远停在游标。
+ * 15m 单独算（见 WARMUP_15M）：它是独立序列，根数换算不同。
  */
-const WARMUP_1H: Record<ChartPeriod, number> = { '4h': 480, '1h': 240 };
+const WARMUP_1H: Record<'4h' | '1h', number> = { '4h': 480, '1h': 240 };
+
+/**
+ * 15m 的预热根数。
+ *
+ * 960 根 15m = 240 小时 = 10 天 —— **与 1h 口径（240 根 1h = 240 小时）严格对齐**。
+ *
+ * 为什么必须对齐：
+ *   15m 是 1h 的「同一时间轴高分辨率视图」。如果 15m 的历史跨度比 1h 短，
+ *   用户在 1h ↔ 15m 之间切换时，视野长度会变 —— 看起来像「图表跳了一下」，
+ *   很难受。跨度一致，切换才是纯粹的「同一段历史的两种粒度」。
+ *
+ * （v6 初版这里写的是 480 根 = 120 小时，比 1h 短一半 —— 已修正。）
+ */
+const WARMUP_15M = 960;
 
 /**
  * 目标可见根数 —— 决定 barSpace，让「预热区 + 当前根」尽量铺满一屏。
  * 数值偏大 → K 线变密；偏小 → 起点前的历史被挤出视野。
  */
-const TARGET_VISIBLE: Record<ChartPeriod, number> = { '4h': 120, '1h': 200 };
+const TARGET_VISIBLE: Record<ChartPeriod, number> = { '4h': 120, '1h': 200, '15m': 260 };
 
 /**
  * 预热窗口的锚点索引。
@@ -61,7 +73,7 @@ function resolveAnchor(startCursor: number, cursor: number): number {
  *
  * 注意锚点要先换成**时间戳**再对齐：索引和毫秒是两套单位，混用会算飞。
  */
-function calcWindowStart(bars1h: Bar[], anchor: number, period: ChartPeriod): number {
+function calcWindowStart(bars1h: Bar[], anchor: number, period: '4h' | '1h'): number {
   if (anchor < 0 || !bars1h.length) return 0;
   const anchorBar = bars1h[anchor];
   if (!anchorBar) return 0;
@@ -69,6 +81,56 @@ function calcWindowStart(bars1h: Bar[], anchor: number, period: ChartPeriod): nu
   const alignedTime = Math.floor(rawTime / FOUR_HOURS) * FOUR_HOURS;
   const idx = bars1h.findIndex((b) => b.time >= alignedTime);
   return idx < 0 ? 0 : idx;
+}
+
+/**
+ * 15m 的窗口（独立序列，按时间戳切）。
+ *
+ * 15m 是**独立序列**（不是从 1h 派生的），所以窗口按时间戳切：
+ *   - **左端**：锚点往前 WARMUP_15M 根 15m（= 240 小时，与 1h 口径一致）
+ *   - **右端**：当前 1h 游标所在小时的**小时末**
+ *
+ * ⚠️ 右端必须跟着 **cursorIdx** 走，不能跟着 anchor（= min(startCursor, cursor)）走。
+ *   踩过的坑：初版右端也用 anchor，而 anchor = min(练习起点, 游标) = 起点
+ *   —— 于是回放往前推进时，15m 图的右端**钉死在练习起点那一小时不动**，
+ *   1h 图在走、15m 图不走，看起来像「15m 数据没刷新」。
+ *
+ * 语义边界（为什么右端可以落在「当前这一小时」内部）：
+ *   15m 图 = 1h 引擎**已经揭示**的那一小时 + 这一小时内部的 15m 路径。
+ *   当前这根 1h 已经在引擎里了（bars1h[cursor]），引擎知道它的 OHLC；
+ *   15m 视图额外展示这一小时**内部的走势** —— 这正是「精入场」要看的东西。
+ *   关键红线：绝不显示 cursor **之后**的任何数据（未来）。
+ */
+function calcWindow15m(
+  bars15m: Bar[],
+  bars1h: Bar[],
+  anchor: number,
+  cursorIdx: number,
+): { from: number; to: number } {
+  if (!bars15m.length || anchor < 0 || cursorIdx < 0) return { from: 0, to: -1 };
+  const anchorBar = bars1h[anchor];
+  const cursorBar = bars1h[cursorIdx];
+  if (!anchorBar || !cursorBar) return { from: 0, to: -1 };
+
+  // 当前 1h 根覆盖 [cursorBar.time, cursorBar.time + 1h)
+  const hourEnd = cursorBar.time + HOUR;
+  // 15m 序列里 ≤ hourEnd 的最后一根
+  let to = -1;
+  for (let i = 0; i < bars15m.length; i++) {
+    if (bars15m[i].time < hourEnd) to = i;
+    else break;
+  }
+  if (to < 0) return { from: 0, to: -1 };
+
+  const fromTime = anchorBar.time - WARMUP_15M * 15 * 60 * 1000;
+  let from = 0;
+  for (let i = 0; i <= to; i++) {
+    if (bars15m[i].time >= fromTime) {
+      from = i;
+      break;
+    }
+  }
+  return { from, to };
 }
 
 /** 币安配色：涨 #0ECB81（绿） / 跌 #F6465D（红），网格极淡，数字统一 #EAECEF */
@@ -285,6 +347,9 @@ function applyIndicators(
  * - 变长：先把上一根补成最终形态（4h 形成中的蜡烛），再追加新柱
  * - 等长：更新最后一根（形成中的 4h 蜡烛会原地替换）
  * - 变短：回退 → 重新 init
+ * - **等长但首根变了**：窗口整体平移 → 必须整体重建
+ *   （15m 视图在回看跨过练习起点时会遇到：左端右移 4 根、右端左移 4 根，
+ *    长度不变但每一根都换了。若只更新最后一根，中间数据会整体错位。）
  */
 function syncFeed(chart: Chart, feed: Feed, target: KLineData[]) {
   const prev = feed.current.length;
@@ -294,6 +359,15 @@ function syncFeed(chart: Chart, feed: Feed, target: KLineData[]) {
     return;
   }
   if (target.length === prev) {
+    const sameHead =
+      target.length > 0 &&
+      feed.current.length > 0 &&
+      target[0].timestamp === feed.current[0].timestamp;
+    if (!sameHead) {
+      feed.current = target;
+      chart.resetData();
+      return;
+    }
     if (target.length > 0) feed.subCb?.(target[target.length - 1]);
     feed.current = target;
     return;
@@ -367,13 +441,15 @@ function pickBarAt(
 interface Props {
   symbol: string;
   bars1h: Bar[];
+  /** 15m 独立序列（仅 BTC/ETH 有，其他标的为空数组） */
+  bars15m: Bar[];
   cursor: number;
   /** 练习起点（1h 索引）—— 用于确定预热窗口左端与起点标记 */
   startCursor: number;
   openTrade: OpenTrade | null;
   /** 4h 周期启用的指标名列表 */
   indicators4h: string[];
-  /** 1h 周期启用的指标名列表 */
+  /** 1h 周期启用的指标名列表（15m 复用这一套） */
   indicators1h: string[];
   /** 当前显示的周期 */
   period: ChartPeriod;
@@ -383,6 +459,7 @@ interface Props {
 export function ChartPanel({
   symbol,
   bars1h,
+  bars15m,
   cursor,
   startCursor,
   openTrade,
@@ -430,7 +507,7 @@ export function ChartPanel({
    * 预热窗口左端（1h 索引）—— 见 calcWindowStart 的说明。
    */
   const windowStart = useMemo(
-    () => calcWindowStart(bars1h, resolveAnchor(startCursor, cursor), period),
+    () => calcWindowStart(bars1h, resolveAnchor(startCursor, cursor), period === '15m' ? '1h' : period),
     [bars1h, cursor, startCursor, period],
   );
 
@@ -440,7 +517,21 @@ export function ChartPanel({
   );
   const revealed4h = useMemo(() => derive4h(revealed1h), [revealed1h]);
 
-  const activeBars = period === '4h' ? revealed4h : revealed1h;
+  /** 15m 的窗口（独立序列，按时间戳切；右端跟随 cursor） */
+  const window15m = useMemo(
+    () => calcWindow15m(bars15m, bars1h, resolveAnchor(startCursor, cursor), cursor),
+    [bars15m, bars1h, cursor, startCursor],
+  );
+  const revealed15m = useMemo(
+    () =>
+      window15m.to < window15m.from
+        ? []
+        : bars15m.slice(window15m.from, window15m.to + 1),
+    [bars15m, window15m],
+  );
+
+  const activeBars =
+    period === '4h' ? revealed4h : period === '15m' ? revealed15m : revealed1h;
 
   // 切换周期后，上一根锁定的 K 线在新序列里不存在 → 清除锁定与悬停
   useEffect(() => {
@@ -557,7 +648,9 @@ export function ChartPanel({
     if (startCursor < 0) return null;
     const bar = bars1h[startCursor];
     if (!bar) return null;
-    return period === '4h' ? Math.floor(bar.time / FOUR_HOURS) * FOUR_HOURS : bar.time;
+    if (period === '4h') return Math.floor(bar.time / FOUR_HOURS) * FOUR_HOURS;
+    if (period === '15m') return Math.floor(bar.time / (15 * 60 * 1000)) * (15 * 60 * 1000);
+    return bar.time;
   }, [bars1h, startCursor, period]);
 
   useEffect(() => {
@@ -595,6 +688,7 @@ export function ChartPanel({
     const chart = chartRef.current;
     if (!chart) return;
 
+    // 15m 复用 1h 的指标配置（15m 是 1h 的细化视图，指标体系一致）
     const names = period === '4h' ? indicators4h : indicators1h;
     const sig = `${period}|${names.join(',')}`;
     if (sig === appliedSigRef.current) return;
@@ -623,19 +717,27 @@ export function ChartPanel({
 
     const c = cursorRef.current;
     const anchor = resolveAnchor(startCursorRef.current, c);
-    const winStart = c >= 0 ? calcWindowStart(bars1h, anchor, period) : 0;
-    const revealed = c >= 0 ? bars1h.slice(winStart, c + 1) : [];
-    feed.current = (period === '4h' ? derive4h(revealed) : revealed).map(toKLineData);
+
+    let series: Bar[];
+    if (period === '15m') {
+      const w = calcWindow15m(bars15m, bars1h, anchor, c);
+      series = w.to < w.from ? [] : bars15m.slice(w.from, w.to + 1);
+    } else {
+      const winStart = c >= 0 ? calcWindowStart(bars1h, anchor, period) : 0;
+      const revealed = c >= 0 ? bars1h.slice(winStart, c + 1) : [];
+      series = period === '4h' ? derive4h(revealed) : revealed;
+    }
+    feed.current = series.map(toKLineData);
 
     chart.setSymbol({ ticker: `${symbol}-${period}`, pricePrecision: precision, volumePrecision: 2 });
-    chart.setPeriod({ type: 'hour', span: period === '4h' ? 4 : 1 });
+    chart.setPeriod({ type: 'hour', span: period === '4h' ? 4 : period === '15m' ? 0.25 : 1 });
     chart.setDataLoader(feed.loader);
     chart.resetData();
     applyTargetBarSpace(chart, TARGET_VISIBLE[period]);
     applyPaneHeights(chart, containerRef.current!, paneIdsRef.current, weightsRef.current);
 
     loadedKeyRef.current = key;
-  }, [symbol, period, bars1h, startCursor]);
+  }, [symbol, period, bars1h, bars15m, startCursor]);
 
   // ---------- 游标推进：增量同步 ----------
   useEffect(() => {
@@ -649,14 +751,15 @@ export function ChartPanel({
     applyTargetBarSpace(chart, TARGET_VISIBLE[period]);
   }, [activeBars, symbol, period]);
 
-  // ---------- 持仓：画入场/止损/目标线（只在 1h 图上） ----------
+  // ---------- 持仓：画入场/止损/目标线（1h 与 15m 图上都画） ----------
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     chart.removeOverlay({ groupId: TRADE_GROUP });
-    if (!openTrade || period !== '1h') return;
+    if (!openTrade || period === '4h') return;
 
-    const ts = revealed1h.length ? revealed1h[revealed1h.length - 1].time : Date.now();
+    const series = period === '15m' ? revealed15m : revealed1h;
+    const ts = series.length ? series[series.length - 1].time : Date.now();
     const lines: Array<{ value: number; color: string; label: string }> = [
       { value: openTrade.entryPrice, color: '#FCD535', label: '入场' },
       { value: openTrade.stopLoss, color: '#F6465D', label: '止损' },
@@ -678,7 +781,7 @@ export function ChartPanel({
         extendData: { label: l.label },
       });
     }
-  }, [openTrade, revealed1h, period]);
+  }, [openTrade, revealed1h, revealed15m, period]);
 
   // ---------- 详情：锁定 > 悬停 > 最新一根 ----------
   const detail = useMemo(() => {
@@ -707,27 +810,63 @@ export function ChartPanel({
 
   const locked = pinnedTime !== null;
 
+  /**
+   * 周期切换：三个档位，从左到右 = 15m → 1h → 4h。
+   *
+   * 交互设计（按需求）：
+   *   - 默认停在 1h（中间档）
+   *   - 「往左」= 更细粒度（15m，用于精找入场）
+   *   - 「往右」= 更粗粒度（4h，用于看趋势）
+   *   - 左右箭头按钮 + 直接点标签，两种方式都支持
+   */
+  const PERIODS: Array<{ key: ChartPeriod; main: string; sub: string; disabled?: boolean }> = [
+    { key: '15m', main: '15m', sub: '精入场', disabled: bars15m.length === 0 },
+    { key: '1h', main: '1h', sub: '入场' },
+    { key: '4h', main: '4h', sub: '趋势' },
+  ];
+  const curIdx = PERIODS.findIndex((p) => p.key === period);
+  const step = (delta: number) => {
+    const next = PERIODS[curIdx + delta];
+    if (next && !next.disabled) onPeriodChange(next.key);
+  };
+
   return (
     <div className="chart-panel">
       <div className="chart-toolbar">
-        <div className="period-tabs" role="tablist" aria-label="K线周期">
+        <div className="period-nav">
           <button
-            role="tab"
-            aria-selected={period === '4h'}
-            className={`period-tab ${period === '4h' ? 'active' : ''}`}
-            onClick={() => onPeriodChange('4h')}
+            className="btn tiny ghost period-arrow"
+            onClick={() => step(-1)}
+            disabled={curIdx <= 0 || PERIODS[curIdx - 1]?.disabled}
+            title="更细粒度（15m）"
+            aria-label="切换到更细周期"
           >
-            <span className="period-main">4h</span>
-            <span className="period-sub">趋势</span>
+            ‹
           </button>
+          <div className="period-tabs" role="tablist" aria-label="K线周期">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                role="tab"
+                aria-selected={period === p.key}
+                className={`period-tab ${period === p.key ? 'active' : ''} ${p.disabled ? 'disabled' : ''}`}
+                onClick={() => !p.disabled && onPeriodChange(p.key)}
+                disabled={p.disabled}
+                title={p.disabled ? '该标的暂无 15m 数据（当前仅 BTC/ETH 覆盖）' : undefined}
+              >
+                <span className="period-main">{p.main}</span>
+                <span className="period-sub">{p.sub}</span>
+              </button>
+            ))}
+          </div>
           <button
-            role="tab"
-            aria-selected={period === '1h'}
-            className={`period-tab ${period === '1h' ? 'active' : ''}`}
-            onClick={() => onPeriodChange('1h')}
+            className="btn tiny ghost period-arrow"
+            onClick={() => step(1)}
+            disabled={curIdx >= PERIODS.length - 1 || PERIODS[curIdx + 1]?.disabled}
+            title="更粗粒度（4h）"
+            aria-label="切换到更粗周期"
           >
-            <span className="period-main">1h</span>
-            <span className="period-sub">入场</span>
+            ›
           </button>
         </div>
 
@@ -758,6 +897,10 @@ export function ChartPanel({
         </div>
       </div>
 
+      {period === '15m' && bars15m.length === 0 && (
+        <div className="notice warn chart-note">该标的暂无 15m 数据（当前仅 BTC/ETH 覆盖 15m），已切回 1h。</div>
+      )}
+
       <div className="chart-canvas-wrap">
         <div ref={containerRef} className="chart-canvas" />
         {startX !== null && <div className="start-marker" style={{ left: `${startX}px` }} />}
@@ -765,7 +908,11 @@ export function ChartPanel({
       </div>
 
       <div className="chart-foot">
-        <span className="muted">点击任意 K 线锁定查看详情，再次点击空白处或按 ESC 解除</span>
+        <span className="muted">
+          {period === '15m'
+            ? '15m 为 1h 同一时间轴的高分辨率视图（右端锚定当前小时），回放推进仍按 1h'
+            : '点击任意 K 线锁定查看详情，再次点击空白处或按 ESC 解除'}
+        </span>
         {locked && (
           <button className="btn tiny ghost" onClick={() => setPinnedTime(null)}>
             解除锁定

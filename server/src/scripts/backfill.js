@@ -1,17 +1,20 @@
 import { query, queryOne, closePool } from '../db.js';
 import { PRAC } from '../config.js';
-import { initSchema, migrateMarketDimension } from '../schema.js';
-import { backfillExternal } from '../services/klineService.js';
+import { initSchema, migrateMarketDimension, migrateV6 } from '../schema.js';
+import { backfillExternal, materializeSymbol } from '../services/klineService.js';
 import { fetchRwaTokens } from '../services/sources/alpha.js';
 
 /**
- * 回填脚本：把外部源（币安现货 / 链上美股）的 1h K 线写入 practice.klines。
+ * 回填脚本：把外部源（币安现货 / 链上美股）的 K 线写入 practice.klines。
  *
  * 用法：
  *   node src/scripts/backfill.js spot --symbols BTCUSDT,ETHUSDT --days 365
+ *   node src/scripts/backfill.js spot --symbols BTCUSDT --interval 15m --days 60
  *   node src/scripts/backfill.js stock --symbols AAPLon,TSLAon --days 60
  *   node src/scripts/backfill.js stock-all --limit 40      # 从 Alpha 自动挑市值最大的 N 个
  *   node src/scripts/backfill.js spot-all --limit 30       # 按币安现货成交额挑前 N
+ *   node src/scripts/backfill.js perp-deep                # BTC/ETH 全周期（1h+15m）从源表物化
+ *   node src/scripts/backfill.js audit                    # 数据健康度审计
  */
 
 function parseArgs(argv) {
@@ -128,14 +131,61 @@ async function main() {
   const mode = args._[0] || 'help';
   const days = Number(args.days) || (mode.startsWith('stock') ? 60 : 365);
   const limit = Number(args.limit) || 30;
+  const interval = String(args.interval || '1h');
+  // 15m 数据量是 1h 的 4 倍，默认上限要放大，否则拉不满
+  const maxBars = Number(args.maxBars) || (interval === '1h' ? 20000 : 80000);
 
-  console.log(`[backfill] 模式=${mode} days=${days}`);
+  console.log(`[backfill] 模式=${mode} days=${days} interval=${interval}`);
 
   await initSchema((sql) => query(sql));
   await migrateMarketDimension((sql) => query(sql));
+  await migrateV6((sql) => query(sql));
 
   let targets = [];
   let market = 'spot';
+
+  if (mode === 'perp-deep') {
+    // BTC/ETH 全周期物化（源表 → practice.klines）
+    // 15m 数据源表只有 2026-09 起，所以最多也就这么长 —— 这是源的上限，不是我们的。
+    market = 'perp';
+    const syms = String(args.symbols || 'BTCUSDT,ETHUSDT')
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    const ivs = String(args.intervals || '1h,15m')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const sym of syms) {
+      for (const iv of ivs) {
+        const t0 = Date.now();
+        try {
+          const r = await queryOne(
+            `SELECT count(*)::int AS n, min(open_time) AS first, max(open_time) AS last
+               FROM ${PRAC.schema}.klines
+              WHERE market = 'perp' AND symbol = $1 AND interval = $2`,
+            [sym, iv],
+          );
+          const before = Number(r?.n ?? 0);
+          await materializeSymbol(sym, { interval: iv, market: 'perp' });
+          const r2 = await queryOne(
+            `SELECT count(*)::int AS n, min(open_time) AS first, max(open_time) AS last
+               FROM ${PRAC.schema}.klines
+              WHERE market = 'perp' AND symbol = $1 AND interval = $2`,
+            [sym, iv],
+          );
+          const after = Number(r2?.n ?? 0);
+          console.log(
+            `  [OK] ${sym} ${iv}: ${before} → ${after} 根 (${new Date(r2?.first).toISOString().slice(0, 16)} ~ ${new Date(r2?.last).toISOString().slice(0, 16)}) ${Date.now() - t0}ms`,
+          );
+        } catch (err) {
+          console.error(`  [FAIL] ${sym} ${iv}: ${err.message}`);
+        }
+      }
+    }
+    await closePool();
+    return;
+  }
 
   if (mode === 'spot') {
     market = 'spot';
@@ -197,14 +247,14 @@ async function main() {
   for (const symbol of targets) {
     const t0 = Date.now();
     try {
-      const out = await backfillExternal({ market, symbol, days });
+      const out = await backfillExternal({ market, symbol, days, interval, maxBars });
       ok += 1;
       console.log(
-        `  [OK] ${symbol} (${market}) 拉取 ${out.fetched} 根 / 写入 ${out.written} 行 / ${Date.now() - t0}ms`,
+        `  [OK] ${symbol} (${market}/${interval}) 拉取 ${out.fetched} 根 / 写入 ${out.written} 行 / ${Date.now() - t0}ms`,
       );
     } catch (err) {
       fail += 1;
-      console.error(`  [FAIL] ${symbol} (${market}): ${err.message}`);
+      console.error(`  [FAIL] ${symbol} (${market}/${interval}): ${err.message}`);
     }
   }
 

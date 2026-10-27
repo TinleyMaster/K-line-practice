@@ -1,16 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { api } from '../api';
+import { api, setToken } from '../api';
 import type {
   Bar,
+  ChartPeriod,
   ClosedTrade,
+  EntryMode,
   JournalEntry,
   Market,
   MarketInfo,
   OpenTrade,
   Setup,
+  SizeMode,
+  StopType,
   SymbolInfo,
+  TargetType,
   TradeSide,
+  User,
 } from '../types';
 import { derive4h, sliceRevealed } from '../engine/bars';
 import { checkExit, closeTrade, unrealizedPnl } from '../engine/trading';
@@ -22,13 +28,26 @@ export interface EquityPoint {
   label?: string | number;
 }
 
-interface TradeDraft {
+/** 开仓草稿 —— v6 扩展后的完整设置 */
+export interface TradeDraft {
   side: TradeSide;
   stopLoss: number;
   takeProfit: number | null;
   riskPct: number;
   setup: string | null;
   checklist: Record<string, boolean>;
+  /* v6 */
+  entryMode: EntryMode;
+  limitPrice: number | null;
+  stopType: StopType;
+  tpType: TargetType;
+  sizeMode: SizeMode;
+  sizeValue: number;
+  feeRate: number;
+  slippageBps: number;
+  timeStopHrs: number | null;
+  confidence: number | null;
+  notes: string | null;
 }
 
 interface PracticeState {
@@ -40,6 +59,10 @@ interface PracticeState {
   market: Market;
   bars1h: Bar[];
   bars4h: Bar[];
+  /** 15m 独立序列（仅 BTC/ETH 有；其他标的为空数组） */
+  bars15m: Bar[];
+  /** 15m 不可用时的说明文案 */
+  note15m: string | null;
   loading: boolean;
   error: string | null;
 
@@ -58,8 +81,9 @@ interface PracticeState {
   /* 指标配置 */
   indicators4h: string[];
   indicators1h: string[];
+  /** 15m 复用 1h 的指标配置（15m 是 1h 的细化视图，指标体系一致） */
   /** 当前图表显示的周期（单图 + Tab 切换） */
-  chartPeriod: '4h' | '1h';
+  chartPeriod: ChartPeriod;
 
   /* UI */
   /** 开仓面板是否展开 */
@@ -77,9 +101,15 @@ interface PracticeState {
   /* 复盘 */
   pendingJournal: ClosedTrade | null;
   journal: JournalEntry[];
+  /** 被关掉但没写的复盘（可稍后补） */
+  skippedJournal: JournalEntry[];
 
   /* 会话 */
   sessionId: number | null;
+
+  /* 账号（v6） */
+  user: User | null;
+  authReady: boolean;
 
   /* actions */
   bootstrap: () => Promise<void>;
@@ -101,7 +131,7 @@ interface PracticeState {
   /** 设置某周期的指标选择 */
   setIndicators: (period: '4h' | '1h', names: string[]) => void;
   /** 切换图表显示的周期 */
-  setChartPeriod: (period: '4h' | '1h') => void;
+  setChartPeriod: (period: ChartPeriod) => void;
   /** 展开/收起开仓面板 */
   setTradePanelOpen: (open: boolean) => void;
   openPosition: (draft: TradeDraft) => Promise<{ ok: boolean; msg?: string }>;
@@ -112,6 +142,19 @@ interface PracticeState {
     mistakeTag: string | null;
     content: string;
   }) => Promise<void>;
+  /** 跳过复盘（关掉弹窗不写内容）—— 标记为待补，不阻塞继续 */
+  skipJournal: () => Promise<void>;
+  /** 补写之前跳过的复盘 */
+  fillSkippedJournal: (id: number, payload: {
+    followedPlan: boolean;
+    emotion: string | null;
+    mistakeTag: string | null;
+    content: string;
+  }) => Promise<void>;
+  /** 登录 / 注册 / 登出 */
+  login: (username: string, password: string) => Promise<{ ok: boolean; msg?: string }>;
+  register: (username: string, password: string, displayName?: string) => Promise<{ ok: boolean; msg?: string }>;
+  logout: () => Promise<void>;
   refreshStatsLater: () => void;
 }
 
@@ -166,6 +209,8 @@ export const usePracticeStore = create<PracticeState>()(
       market: 'perp',
       bars1h: [],
       bars4h: [],
+      bars15m: [],
+      note15m: null,
       loading: false,
       error: null,
 
@@ -179,7 +224,7 @@ export const usePracticeStore = create<PracticeState>()(
 
       indicators4h: DEFAULT_4H,
       indicators1h: DEFAULT_1H,
-      chartPeriod: '4h',
+      chartPeriod: '1h',
 
       tradePanelOpen: false,
 
@@ -193,8 +238,12 @@ export const usePracticeStore = create<PracticeState>()(
 
       pendingJournal: null,
       journal: [],
+      skippedJournal: [],
 
       sessionId: null,
+
+      user: null,
+      authReady: false,
 
       bootstrap: async () => {
         try {
@@ -204,6 +253,14 @@ export const usePracticeStore = create<PracticeState>()(
             api.markets(),
           ]);
           set({ symbols, setups, markets });
+
+          // 账号状态（未登录也继续用，不强制）
+          try {
+            const { user } = await api.me();
+            set({ user, authReady: true });
+          } catch {
+            set({ authReady: true });
+          }
 
           const { symbol, market } = get();
           const exists = symbols.some((s) => s.symbol === symbol && s.market === market);
@@ -233,7 +290,16 @@ export const usePracticeStore = create<PracticeState>()(
         if (inMarket) {
           await get().selectSymbol(inMarket.symbol, market);
         } else {
-          set({ bars1h: [], bars4h: [], cursor: -1, maxCursor: -1, openTrade: null, closedTrades: [] });
+          set({
+            bars1h: [],
+            bars4h: [],
+            bars15m: [],
+            note15m: null,
+            cursor: -1,
+            maxCursor: -1,
+            openTrade: null,
+            closedTrades: [],
+          });
         }
       },
 
@@ -244,6 +310,7 @@ export const usePracticeStore = create<PracticeState>()(
           const data = await api.klines(symbol, m, 1200);
           const bars1h = data.bars1h ?? [];
           const bars4h = data.bars4h ?? derive4h(bars1h);
+          const bars15m = data.bars15m ?? [];
           // 练习起点：用户指定优先（保留其偏好），否则自动推导；
           // 起点前保证有足够的 4h 趋势上下文（≥120 根 4h）
           const start = resolveStartIndex(bars1h, get().manualStartTime);
@@ -252,6 +319,8 @@ export const usePracticeStore = create<PracticeState>()(
             market: m,
             bars1h,
             bars4h,
+            bars15m,
+            note15m: data.note15m ?? null,
             cursor: start,
             startCursor: start,
             maxCursor: start,
@@ -267,6 +336,10 @@ export const usePracticeStore = create<PracticeState>()(
             playing: false,
             loading: false,
           });
+          // 当前周期若是 15m 但没数据 → 自动退回 1h（避免打开就是空图）
+          if (get().chartPeriod === '15m' && bars15m.length === 0) {
+            set({ chartPeriod: '1h' });
+          }
         } catch (err) {
           set({ error: (err as Error).message, loading: false });
         }
@@ -369,6 +442,7 @@ export const usePracticeStore = create<PracticeState>()(
           openTrade: null,
           closedTrades: [],
           equity: DEFAULT_EQUITY,
+          equityStart: DEFAULT_EQUITY,
           peakEquity: DEFAULT_EQUITY,
           maxDrawdown: 0,
           equityCurve: [],
@@ -530,6 +604,16 @@ export const usePracticeStore = create<PracticeState>()(
           riskAmount: risk,
           qty,
           checklist: draft.checklist,
+          entryMode: draft.entryMode,
+          limitPrice: draft.limitPrice,
+          stopType: draft.stopType,
+          tpType: draft.tpType,
+          sizeMode: draft.sizeMode,
+          feeRate: draft.feeRate,
+          slippageBps: draft.slippageBps,
+          timeStopHrs: draft.timeStopHrs,
+          confidence: draft.confidence,
+          notes: draft.notes,
         };
         set({ openTrade: trade });
 
@@ -553,6 +637,19 @@ export const usePracticeStore = create<PracticeState>()(
             riskAmount: trade.riskAmount,
             qty: trade.qty,
             checklist: trade.checklist,
+            entryMode: trade.entryMode,
+            limitPrice: trade.limitPrice,
+            stopType: trade.stopType,
+            stopValue: draft.stopType === 'price' ? draft.stopLoss : null,
+            tpType: trade.tpType,
+            tpValue: draft.tpType === 'price' ? draft.takeProfit : null,
+            sizeMode: trade.sizeMode,
+            sizeValue: draft.sizeValue,
+            feeRate: trade.feeRate,
+            slippageBps: trade.slippageBps,
+            timeStopHrs: trade.timeStopHrs,
+            confidence: trade.confidence,
+            notes: trade.notes,
           });
           set({
             sessionId: sid,
@@ -630,6 +727,98 @@ export const usePracticeStore = create<PracticeState>()(
         }
       },
 
+      /**
+       * 跳过复盘（v6）：关掉弹窗但不写内容。
+       *
+       * 语义：**不阻塞继续练习**，但记一条 skipped 标记，
+       * 纪律统计里算「没复盘」，且顶栏显示待补数量 —— 事后可以补写。
+       *
+       * 为什么允许跳过：强制弹窗如果完全无法关闭，用户会被卡死（v5 的真实问题）。
+       * 更好的做法是「允许跳过但留痕」—— 纪律指标照样能反映出来。
+       */
+      skipJournal: async () => {
+        const pending = get().pendingJournal;
+        if (!pending) return;
+        const sid = get().sessionId;
+        set({ pendingJournal: null });
+        try {
+          const entry = await api.createJournal({
+            sessionId: sid,
+            tradeId: pending.serverId ?? null,
+            symbol: pending.symbol,
+            market: get().market,
+            setup: pending.setup,
+            followedPlan: null,
+            emotion: null,
+            mistakeTag: null,
+            content: '',
+            skipped: true,
+            snapshot: {
+              entry: pending.entryPrice,
+              stop: pending.stopLoss,
+              target: pending.takeProfit,
+              exit: pending.exitPrice,
+              r: pending.rMultiple,
+              side: pending.side,
+            },
+          });
+          set((s) => ({ skippedJournal: [entry, ...s.skippedJournal] }));
+        } catch {
+          /* 落库失败不影响本地练习 */
+        }
+      },
+
+      /** 补写之前跳过的复盘 */
+      fillSkippedJournal: async (id, payload) => {
+        try {
+          const entry = await api.updateJournal(id, {
+            followedPlan: payload.followedPlan,
+            emotion: payload.emotion,
+            mistakeTag: payload.mistakeTag,
+            content: payload.content,
+          });
+          set((s) => ({
+            skippedJournal: s.skippedJournal.filter((e) => e.id !== id),
+            journal: [entry, ...s.journal],
+          }));
+        } catch (err) {
+          throw err;
+        }
+      },
+
+      /* ---- 账号 ---- */
+      login: async (username, password) => {
+        try {
+          const { user, token } = await api.login(username, password);
+          setToken(token);
+          set({ user });
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, msg: (err as Error).message };
+        }
+      },
+
+      register: async (username, password, displayName) => {
+        try {
+          const { user, token } = await api.register(username, password, displayName);
+          setToken(token);
+          set({ user });
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, msg: (err as Error).message };
+        }
+      },
+
+      logout: async () => {
+        try {
+          await api.logout();
+        } catch {
+          /* ignore */
+        }
+        setToken(null);
+        set({ user: null });
+      },
+
       refreshStatsLater: () => {
         /* 占位：统计页自行拉取 */
       },
@@ -640,7 +829,7 @@ export const usePracticeStore = create<PracticeState>()(
         symbol: s.symbol,
         market: s.market,
         cursor: s.cursor,
-        startCursor: s.startCursor,
+        startCursor: s.cursor,
         openTrade: s.openTrade,
         closedTrades: s.closedTrades,
         equity: s.equity,
@@ -663,3 +852,18 @@ export const usePracticeStore = create<PracticeState>()(
 /** 便捷选择器 */
 export const selectRevealed1h = (s: PracticeState): Bar[] => sliceRevealed(s.bars1h, s.cursor);
 export const selectRevealed4h = (s: PracticeState): Bar[] => sliceRevealed(s.bars4h, s.cursor);
+
+/**
+ * e2e 测试钩子：把 store 挂到 window。
+ *
+ * 为什么要这个：验证脚本要可靠地驱动「开仓 → 平仓 → 强制复盘」这条链路。
+ * 纯 DOM 点击会踩坑 —— 页面上有多个「市价平仓」语义的按钮、
+ * React 受控表单的填充方式在不同 input 类型下行为不一致，
+ * 靠选择器猜很容易测了个寂寞（而且失败时看不出是产品问题还是脚本问题）。
+ *
+ * 挂的是 getState（只读快照）+ action 引用，不做任何额外事情。
+ * 跟 ChartPanel 的 window.__klineChart 是同一套惯例。
+ */
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__practiceStore = usePracticeStore;
+}

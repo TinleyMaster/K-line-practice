@@ -35,8 +35,29 @@ export const DDL = [
      created_at       timestamptz NOT NULL DEFAULT now()
    )`,
 
+  /* ================= v6：账号体系 =================
+   * 两人共用一套练习台，各自的练习数据必须分开存 —— 否则 PK 就没有意义。
+   * 密码用 scrypt 加盐哈希（不存明文），token 明文存库但只在登录时签发。
+   */
+  `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.users (
+     id            bigserial PRIMARY KEY,
+     username      text UNIQUE NOT NULL,
+     display_name  text NOT NULL DEFAULT '',
+     password_hash text NOT NULL,
+     salt          text NOT NULL,
+     created_at    timestamptz NOT NULL DEFAULT now()
+   )`,
+
+  `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.auth_tokens (
+     token      text PRIMARY KEY,
+     user_id    bigint NOT NULL REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     expires_at timestamptz NOT NULL
+   )`,
+
   `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.sessions (
      id           bigserial PRIMARY KEY,
+     user_id      bigint REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE,
      symbol       text NOT NULL,
      market       text NOT NULL DEFAULT 'perp',
      base_interval text NOT NULL DEFAULT '1h',
@@ -57,6 +78,7 @@ export const DDL = [
   `CREATE TABLE IF NOT EXISTS ${PRAC.schema}.trades (
      id            bigserial PRIMARY KEY,
      session_id    bigint NOT NULL REFERENCES ${PRAC.schema}.sessions(id) ON DELETE CASCADE,
+     user_id       bigint REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE,
      symbol        text NOT NULL,
      market        text NOT NULL DEFAULT 'perp',
      side          text NOT NULL,
@@ -74,6 +96,20 @@ export const DDL = [
      status        text NOT NULL DEFAULT 'open',
      exit_reason   text,
      checklist     jsonb NOT NULL DEFAULT '{}'::jsonb,
+     /* ---- v6：开仓设置扩展（见 TradeDraft 注释）---- */
+     entry_mode    text NOT NULL DEFAULT 'market',   -- market=市价 / limit=限价挂单
+     limit_price   numeric(24,10),
+     stop_type     text NOT NULL DEFAULT 'price',    -- price / pct / atr
+     stop_value    numeric(24,10),
+     tp_type       text NOT NULL DEFAULT 'price',    -- price / ratio / none
+     tp_value      numeric(24,10),
+     size_mode     text NOT NULL DEFAULT 'risk',     -- risk=按风险% / notional=按名义金额
+     size_value    numeric(24,10),
+     fee_rate      numeric(12,8) NOT NULL DEFAULT 0,  -- 单边费率（小数，0.0004=4bp）
+     slippage_bps  numeric(12,4) NOT NULL DEFAULT 0,
+     time_stop_hrs integer,                          -- 时间止损（小时）
+     confidence    integer,                          -- 信号置信度 1~5
+     notes         text,
      created_at    timestamptz NOT NULL DEFAULT now(),
      updated_at    timestamptz NOT NULL DEFAULT now()
    )`,
@@ -82,6 +118,7 @@ export const DDL = [
      id            bigserial PRIMARY KEY,
      session_id    bigint REFERENCES ${PRAC.schema}.sessions(id) ON DELETE CASCADE,
      trade_id      bigint REFERENCES ${PRAC.schema}.trades(id) ON DELETE CASCADE,
+     user_id       bigint REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE,
      symbol        text,
      market        text NOT NULL DEFAULT 'perp',
      setup         text,
@@ -90,6 +127,8 @@ export const DDL = [
      mistake_tag   text,
      content       text NOT NULL DEFAULT '',
      snapshot      jsonb NOT NULL DEFAULT '{}'::jsonb,
+     /* 跳过的复盘：关掉了弹窗但没写内容 —— 纪律统计里算「未复盘」 */
+     skipped       boolean NOT NULL DEFAULT false,
      created_at    timestamptz NOT NULL DEFAULT now()
    )`,
 
@@ -230,4 +269,49 @@ export async function migrateMarketDimension(exec) {
     console.log('[schema] market 维度主键重建完成:', changed.join(', '));
   }
   return changed;
+}
+
+/**
+ * v6 迁移：账号维度 + 开仓设置扩展字段。
+ *
+ * 幂等：全部用 ADD COLUMN IF NOT EXISTS，重复执行安全。
+ */
+export async function migrateV6(exec) {
+  // 账号维度：练习记录按 user_id 隔离
+  for (const t of ['sessions', 'trades', 'journal_entries']) {
+    await exec(
+      `ALTER TABLE ${PRAC.schema}.${t}
+         ADD COLUMN IF NOT EXISTS user_id bigint REFERENCES ${PRAC.schema}.users(id) ON DELETE CASCADE`,
+    );
+  }
+
+  // 开仓设置扩展字段
+  const TRADE_COLS = [
+    ['entry_mode', `text NOT NULL DEFAULT 'market'`],
+    ['limit_price', `numeric(24,10)`],
+    ['stop_type', `text NOT NULL DEFAULT 'price'`],
+    ['stop_value', `numeric(24,10)`],
+    ['tp_type', `text NOT NULL DEFAULT 'price'`],
+    ['tp_value', `numeric(24,10)`],
+    ['size_mode', `text NOT NULL DEFAULT 'risk'`],
+    ['size_value', `numeric(24,10)`],
+    ['fee_rate', `numeric(12,8) NOT NULL DEFAULT 0`],
+    ['slippage_bps', `numeric(12,4) NOT NULL DEFAULT 0`],
+    ['time_stop_hrs', `integer`],
+    ['confidence', `integer`],
+    ['notes', `text`],
+  ];
+  for (const [name, type] of TRADE_COLS) {
+    await exec(
+      `ALTER TABLE ${PRAC.schema}.trades ADD COLUMN IF NOT EXISTS ${name} ${type}`,
+    );
+  }
+
+  // 跳过的复盘标记（关掉弹窗但没写内容）
+  await exec(
+    `ALTER TABLE ${PRAC.schema}.journal_entries
+       ADD COLUMN IF NOT EXISTS skipped boolean NOT NULL DEFAULT false`,
+  );
+
+  console.log('[schema] v6 迁移完成（账号维度 + 开仓设置扩展字段）');
 }
