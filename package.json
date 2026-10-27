@@ -1,0 +1,32 @@
+{
+  "name": "kline-practice",
+  "private": true,
+  "version": "0.1.0",
+  "description": "K线刻意练习平台 —— 4h看趋势 / 1h入场，历史回放驱动",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "db:init": "npm run db:init -w server",
+    "db:seed": "npm run db:seed -w server",
+    "db:materialize": "npm run db:materialize -w server",
+    "db:reset": "node server/src/scripts/reset-practice.js",
+    "bench:fetch": "npm run bench:fetch -w server",
+    "verify:api": "node scripts/verify/e2e-markets.js",
+    "verify:flow": "node scripts/verify/flow2.js",
+    "verify:viewport": "node scripts/verify/viewports.js",
+    "verify": "npm run verify:api && npm run verify:flow && npm run verify:viewport"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "puppeteer-core": "^23.11.1"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

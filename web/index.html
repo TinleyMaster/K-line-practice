@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      移动端适配要点：
+      - viewport-fit=cover：让页面延伸到刘海/圆角区域，配合 CSS 的 env(safe-area-inset-*) 使用
+      - maximum-scale=1：禁止双击缩放（图表区域需要精确点按，误缩放会打断操作）
+      - user-scalable=no 与 maximum-scale 等价，iOS Safari 仍会忽略，但能挡住大部分安卓浏览器
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b0e14" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>K线刻意练习台</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

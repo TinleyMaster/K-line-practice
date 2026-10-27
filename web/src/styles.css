@@ -1,0 +1,1550 @@
+:root {
+  --bg: #0b0e14;
+  --bg-panel: #131722;
+  --bg-panel-2: #1a1f2e;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #d7dae0;
+  --text-dim: #8b93a3;
+  --text-muted: #6b7383;
+  --up: #ef4d4d;
+  --down: #22c55e;
+  --accent: #3b82f6;
+  --warn: #f0a020;
+  --radius: 8px;
+  /* 练习台侧栏宽度：回放条吸底时要用它算出 right 偏移，避免遮挡右侧交易面板 */
+  --side-col: 340px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 210px;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.brand-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.brand-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.topbar-mid {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.topbar-right {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.stat-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+}
+
+.stat-chip strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 标签页 ---------- */
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 9px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------- 布局 ---------- */
+.practice-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--side-col);
+  gap: 12px;
+  padding: 12px 16px 24px;
+  align-items: start;
+}
+
+.full-view {
+  padding: 16px;
+}
+
+.chart-area {
+  min-width: 0;
+}
+
+.side-area {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 12px;
+}
+
+/* ---------- 图表 ---------- */
+.dual-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chart-block {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+/* 图表画布高度由 CSS 统一控制（媒体查询可覆盖），不写死在组件里 */
+.chart-canvas {
+  width: 100%;
+  height: var(--chart-height, 300px);
+  /* 图表需要处理自己的拖拽/缩放手势，禁止浏览器接管 */
+  touch-action: none;
+}
+
+/* 窄屏：4h / 1h 单图切换 */
+.pane-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.pane-tab {
+  flex: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  padding: 9px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.pane-tab.active {
+  background: var(--bg-panel-2);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.dual-chart.narrow .chart-block.pane-off {
+  display: none;
+}
+
+.chart-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px 6px;
+}
+
+.chart-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+.chart-tag.trend {
+  background: rgba(139, 92, 246, 0.16);
+  color: #a78bfa;
+}
+
+.chart-tag.entry {
+  background: rgba(59, 130, 246, 0.16);
+  color: #60a5fa;
+}
+
+.chart-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---------- 回放控制 ---------- */
+.replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.speed-group {
+  display: flex;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.replay-progress {
+  flex: 1;
+  min-width: 120px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.replay-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.replay-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 74px;
+  text-align: right;
+}
+
+.jump-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* ---------- 按钮 ---------- */
+.btn {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: #222839;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: #2f6fd0;
+}
+
+.btn.danger {
+  background: rgba(239, 77, 77, 0.16);
+  border-color: rgba(239, 77, 77, 0.5);
+  color: #f87171;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: rgba(239, 77, 77, 0.26);
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn.wide {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+}
+
+.btn.tiny {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.btn.active {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+.btn.success.active {
+  border-color: var(--down);
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+
+.btn.danger.active {
+  border-color: var(--up);
+  background: rgba(239, 77, 77, 0.18);
+  color: #f87171;
+}
+
+.btn.side {
+  flex: 1;
+  padding: 8px;
+  font-weight: 600;
+}
+
+.btn.side.long.active {
+  border-color: var(--up);
+  background: rgba(239, 77, 77, 0.16);
+  color: #f87171;
+}
+
+.btn.side.short.active {
+  border-color: var(--down);
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+
+/* ---------- 表单 ---------- */
+.input {
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  width: 100%;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.select {
+  cursor: pointer;
+}
+
+.textarea {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.tiny-input {
+  width: 90px;
+}
+
+.field {
+  display: block;
+  margin-top: 10px;
+}
+
+.field > span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field-row .field {
+  flex: 1;
+}
+
+.symbol-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 560px;
+  width: 100%;
+}
+
+.symbol-picker-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.symbol-picker-row .input:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.symbol-picker-row .select {
+  width: 230px;
+  flex: none;
+}
+
+/* 市场切换 Tab */
+.market-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.market-tab {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+
+.market-tab:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.market-tab.active {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+/* ---------- 面板 ---------- */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.panel-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.small {
+  font-size: 11px;
+}
+
+.up {
+  color: var(--up);
+}
+
+.down {
+  color: var(--down);
+}
+
+.empty {
+  padding: 18px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.notice {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin: 8px 0;
+}
+
+.notice.warn {
+  background: rgba(240, 160, 32, 0.12);
+  color: #f0a020;
+}
+
+.notice.error {
+  background: rgba(239, 77, 77, 0.12);
+  color: #f87171;
+}
+
+.notice.info {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+}
+
+.notice.banner {
+  margin: 10px 16px;
+}
+
+/* ---------- 检查表 ---------- */
+.checklist {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.checklist-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 6px 0 4px;
+  font-weight: 600;
+}
+
+.checklist-title:first-child {
+  margin-top: 0;
+}
+
+.check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+.check-item input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.check-item.static {
+  cursor: default;
+  color: var(--text-dim);
+}
+
+.check-item .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  margin-top: 7px;
+  flex: none;
+}
+
+/* ---------- 计算结果 ---------- */
+.calc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--bg);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.calc-grid > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.calc-grid strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 持仓 ---------- */
+.position-box {
+  margin-top: 8px;
+}
+
+.position-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.side-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.side-badge.long {
+  background: rgba(239, 77, 77, 0.16);
+  color: #f87171;
+}
+
+.side-badge.short {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+
+.kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.kv-grid > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.kv-grid strong {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.position-pnl {
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: 6px;
+}
+
+.position-pnl > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.position-pnl strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.stat-row > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-row strong {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 权益曲线 ---------- */
+.equity-curve {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.equity-curve-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.equity-svg {
+  width: 100%;
+  height: 90px;
+  display: block;
+}
+
+/* ---------- 弹窗 ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.68);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.modal {
+  width: min(640px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.trade-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.trade-summary > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.trade-summary strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.journal-setup {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.chip.active {
+  border-color: var(--accent);
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.chip.wrong.active {
+  border-color: var(--up);
+  color: #f87171;
+  background: rgba(239, 77, 77, 0.14);
+}
+
+/* ---------- 统计 ---------- */
+.card-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.stat-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-card strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 12px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-variant-numeric: tabular-nums;
+}
+
+.table tr.row-bad td {
+  background: rgba(239, 77, 77, 0.06);
+}
+
+.r-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.r-bar-row {
+  display: grid;
+  grid-template-columns: 82px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.r-bar-label {
+  color: var(--text-dim);
+}
+
+.r-bar-track {
+  height: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.r-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.r-bar-fill.neg {
+  background: var(--down);
+}
+
+.r-bar-fill.pos {
+  background: var(--up);
+}
+
+.r-bar-n {
+  text-align: right;
+  color: var(--text-muted);
+}
+
+/* ---------- 设置库 ---------- */
+.setup-library {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setup-form {
+  max-width: 640px;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.setup-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.setup-card.disabled {
+  opacity: 0.5;
+}
+
+.setup-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.setup-card-head strong {
+  flex: 1;
+}
+
+.setup-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.setup-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 4px 0 8px;
+}
+
+.setup-rules ul {
+  margin: 2px 0 8px;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.setup-rules li {
+  margin: 2px 0;
+}
+
+.view-loading {
+  padding: 60px 0;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+@media (max-width: 1100px) {
+  .practice-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .side-area {
+    position: static;
+  }
+}
+
+/* ==================================================================
+   移动端 / iPad 适配
+   目标设备：iPad Pro/iPad Air（竖屏 768-1024 / 横屏 1024-1366）、iPhone
+   设计原则：
+   - 触控目标 ≥ 44px（Apple HIG）
+   - 输入框字号 ≥ 16px（iOS Safari 聚焦时会放大页面，<16px 会导致布局跳动）
+   - 图表区禁用浏览器默认手势（touch-action: none），避免拖动 K 线时页面跟着滚
+   - 回放控制条吸底，单手可推进
+   ================================================================== */
+
+/* ---- 1. 基础触摸重置 ---- */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  /* 禁止下拉刷新 / 橡皮筋，把手势留给图表 */
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* 去掉移动端点击的 300ms 延迟 */
+button,
+input,
+select,
+textarea,
+.chip,
+.stat-card {
+  touch-action: manipulation;
+}
+
+input,
+select,
+textarea {
+  /* iOS 聚焦时页面自动放大，16px 起可避免 */
+  font-size: 16px;
+}
+
+/* ---- 2. 触摸设备：放大可点击区域 ---- */
+@media (pointer: coarse) {
+  .btn,
+  .tab,
+  .chip,
+  .market-tab,
+  .pane-tab {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 速度按钮（0.5s/1s/2s/4s）也必须够大，四连排 44px 仍能塞进 390px 宽 */
+  .btn.tiny {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 6px 10px;
+  }
+
+  .btn.side {
+    min-width: 44px;
+  }
+
+  /* 输入框 / 下拉：高度顶到 44px，手指好点 */
+  .input,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  .check-item {
+    padding: 8px 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .check-item input {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+  }
+
+  .tab {
+    padding: 11px 14px;
+  }
+}
+
+/* iOS Safari：任何指针为粗指针的设备上，输入框字号必须 ≥16px
+   否则聚焦时 Safari 会强制放大整个页面，导致布局跳动。
+   用 any-pointer 而非 pointer：iPad 插着触控板时主指针仍可能是 fine。 */
+@media (any-pointer: coarse) {
+  .input,
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ---- 3. iPad 竖屏及以下（≤1024px）：单列 + 侧栏双列 ---- */
+@media (max-width: 1024px) {
+  .practice-layout {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px 12px calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .side-area {
+    position: static;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+
+  .side-area > *:only-child {
+    grid-column: 1 / -1;
+  }
+
+  /* iPad 宽度够，图表可以更高 */
+  :root {
+    --chart-height: 320px;
+  }
+
+  .topbar {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .brand {
+    min-width: 0;
+  }
+
+  .brand-sub {
+    display: none;
+  }
+
+  .symbol-picker {
+    max-width: none;
+  }
+
+  .symbol-picker-row .select {
+    width: 200px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+}
+
+/* ---- 4. iPad 横屏（1025-1366px）：收窄侧栏 ---- */
+@media (min-width: 1025px) and (max-width: 1366px) {
+  .practice-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  :root {
+    --chart-height: 300px;
+    --side-col: 320px;
+  }
+}
+
+/* ---- 5. 手机（≤767px）：单图模式 + 紧凑布局 ---- */
+@media (max-width: 767px) {
+  :root {
+    --chart-height: clamp(220px, 42dvh, 380px);
+  }
+
+  body {
+    font-size: 14px;
+  }
+
+  .app {
+    min-height: 100dvh;
+  }
+
+  /* 顶栏改为纵向堆叠 */
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .brand {
+    justify-content: flex-start;
+  }
+
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+
+  .brand-title {
+    font-size: 13px;
+  }
+
+  .topbar-mid {
+    width: 100%;
+  }
+
+  .symbol-picker-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .symbol-picker-row .select {
+    width: 100%;
+  }
+
+  .market-tab {
+    flex: 1;
+  }
+
+  /* 权益等数字横向排布 */
+  .topbar-right {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+  }
+
+  .stat-chip {
+    align-items: center;
+  }
+
+  .stat-chip strong {
+    font-size: 14px;
+  }
+
+  /* 标签页 */
+  .tabs {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: 0 8px;
+    overflow-x: auto;
+  }
+
+  .tab {
+    flex: 1;
+    min-width: 96px;
+  }
+
+  .practice-layout {
+    /* 底部留出吸底回放条（实测高 127px）+ 安全区的高度，避免遮挡复盘/交易表单 */
+    padding: 8px 8px calc(148px + env(safe-area-inset-bottom));
+  }
+
+  /* 回放控制条吸底，单手可推进。
+     注意：sticky + bottom 在"控制条不在文档流末尾"时不会贴底（实测 computed=static），
+     手机端改用 fixed 真正吸在视口底部。 */
+  .replay-controls {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    margin-top: 0;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    gap: 6px;
+    background: rgba(19, 23, 34, 0.96);
+    backdrop-filter: blur(8px);
+    border-color: var(--border-strong);
+    border-top: 1px solid var(--border-strong);
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.45);
+  }
+
+  .replay-controls .btn {
+    padding: 9px 12px;
+  }
+
+  .speed-group {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .jump-row {
+    flex-wrap: wrap;
+  }
+
+  .tiny-input {
+    width: 100px;
+  }
+
+  /* 侧栏单列 */
+  .side-area {
+    grid-template-columns: 1fr;
+  }
+
+  /* 统计卡片两列 */
+  .card-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stat-card strong {
+    font-size: 17px;
+  }
+
+  /* 表格横向滚动，避免挤压列 */
+  .stats-grid,
+  .full-view {
+    padding: 10px 8px;
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table {
+    min-width: 520px;
+  }
+
+  /* 弹窗全屏化 */
+  .modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 14px 14px 0 0;
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .trade-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .notice.banner {
+    margin: 8px 8px;
+  }
+}
+
+/* ---- 6. 矮屏横屏（手机横放）：压缩纵向占用 ----
+   390px 高的屏幕要同时装下：顶栏 + tabs + 4h/1h 切换 + 图表 + 吸底回放条。
+   做法：① 顶栏压成一行（市场 Tab 与搜索框并排）；② 图表高度随视口高度自适应，
+   保证蜡烛主图不被吸底条盖住。 */
+@media (max-height: 520px) and (orientation: landscape) {
+  :root {
+    --chart-height: clamp(180px, calc(100dvh - 190px), 220px);
+  }
+
+  .topbar {
+    flex-direction: row;
+    padding: 4px 8px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .brand-sub,
+  .brand-title,
+  .stat-chip-time {
+    display: none;
+  }
+
+  .brand {
+    min-width: auto;
+  }
+
+  .brand-mark {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+  }
+
+  /* 市场 Tab 与搜索框并排，顶栏只占一行 */
+  .symbol-picker {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    max-width: none;
+  }
+
+  .market-tabs {
+    flex-wrap: nowrap;
+  }
+
+  .symbol-picker-row {
+    width: auto;
+    flex: 1;
+  }
+
+  .symbol-picker-row .input:first-child {
+    flex: 1 1 120px;
+  }
+
+  .symbol-picker-row .select {
+    width: 170px;
+  }
+
+  .topbar-right {
+    gap: 10px;
+  }
+
+  .tabs {
+    padding: 0 6px;
+  }
+
+  .tab {
+    padding: 0 14px;
+  }
+
+  .pane-switch {
+    padding: 3px;
+  }
+
+  .pane-tab {
+    padding: 0 8px;
+  }
+
+  .chart-title {
+    padding: 0 4px 4px;
+  }
+
+  .practice-layout {
+    padding: 6px 8px;
+  }
+}
+
+/* ---- 6.5 触摸设备通用：回放条真吸底（fixed）----
+   放在所有宽度媒体查询之后，确保能覆盖它们各自的 padding / position。
+   right 用 --side-col 变量对齐右侧交易面板，避免遮挡「开仓」按钮。
+   单列布局（≤1100px）时侧栏落在下方，回放条改为通栏。 */
+@media (pointer: coarse) {
+  .replay-controls {
+    position: fixed;
+    left: 0;
+    right: var(--side-col);
+    bottom: 0;
+    z-index: 40;
+    margin-top: 0;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    gap: 8px;
+    background: rgba(19, 23, 34, 0.96);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border-strong);
+    border-radius: 0;
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.45);
+  }
+
+  .practice-layout {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (pointer: coarse) and (max-width: 1100px) {
+  .replay-controls {
+    right: 0;
+  }
+}
+
+/* 手机竖屏：回放条实测高 127px（按钮行 + 速度行 + 进度条换行），留够空间 */
+@media (pointer: coarse) and (max-width: 767px) {
+  .practice-layout {
+    padding-bottom: calc(148px + env(safe-area-inset-bottom));
+  }
+}
+
+/* 矮屏横屏（手机横放，390px 高）：回放条压扁，别占掉 1/3 屏幕 */
+@media (pointer: coarse) and (max-height: 520px) and (orientation: landscape) {
+  .replay-controls {
+    padding: 5px 8px calc(5px + env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+
+  .replay-controls .btn.tiny {
+    padding: 4px 8px;
+  }
+
+  .practice-layout {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ---- 7. 刘海屏 / 底部指示条安全区 ---- */
+@supports (padding: max(0px)) {
+  .tabs {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .replay-controls {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ---- 8. 打印（导出复盘）---- */
+@media print {
+  .topbar,
+  .tabs,
+  .replay-controls,
+  .jump-row,
+  .side-area {
+    display: none;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "db:init": "node src/scripts/init-db.js",
+    "db:seed": "node src/scripts/seed.js",
+    "db:materialize": "node src/scripts/materialize.js",
+    "bench:fetch": "node src/scripts/bench-fetch.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.3.0",
+    "pg": "^8.23.1",
+    "pg-copy-streams": "^7.0.0",
+    "undici": "^8.12.3"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.8.1"
+  }
+}

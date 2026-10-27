@@ -1,0 +1,32 @@
+[Unit]
+Description=K线刻意练习平台 (KLine Practice Platform)
+Documentation=file:/opt/kline-practice/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 按实际部署路径修改
+WorkingDirectory=/opt/kline-practice
+ExecStart=/usr/bin/node server/src/index.js
+
+# 环境变量（真实 DATABASE_URL 请放 /opt/kline-practice/.env，不要写进本文件）
+Environment=NODE_ENV=production
+Environment=PORT=8787
+Environment=HOST=0.0.0.0
+EnvironmentFile=-/opt/kline-practice/.env
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kline-practice
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
