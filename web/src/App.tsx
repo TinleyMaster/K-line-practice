@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePracticeStore } from './store/usePracticeStore';
-import { DualChart } from './components/DualChart';
+import { ChartPanel } from './components/ChartPanel';
+import { MarketHeader } from './components/MarketHeader';
 import { ReplayControls } from './components/ReplayControls';
 import { SymbolPicker } from './components/SymbolPicker';
 import { TradePanel } from './components/TradePanel';
 import { PositionPanel } from './components/PositionPanel';
+import { AccountPanel } from './components/AccountPanel';
 import { JournalModal } from './components/JournalModal';
 import { StatsView } from './components/StatsView';
 import { SetupLibrary } from './components/SetupLibrary';
@@ -31,12 +33,16 @@ export default function App() {
   const currentPrice = currentBar?.close ?? 0;
   const totalR = store.closedTrades.reduce((s, t) => s + t.rMultiple, 0);
 
+  /** 回看模式：游标落后于已回放到的最远处 —— 这时不能开仓 */
+  const lookback = store.cursor >= 0 && store.cursor < store.maxCursor;
+
   const canTrade = useMemo(() => {
     if (store.pendingJournal) return false;
     if (store.openTrade) return false;
+    if (lookback) return false;
     if (!currentBar) return false;
     return true;
-  }, [store.pendingJournal, store.openTrade, currentBar]);
+  }, [store.pendingJournal, store.openTrade, currentBar, lookback]);
 
   // 链上美股低流动性时段无成交，这些小时是前向填充出来的哑线（成交量 0），
   // 提示用户别把哑线当真实成交来读。
@@ -49,9 +55,11 @@ export default function App() {
     ? '上一笔交易还没复盘'
     : store.openTrade
       ? '持仓中，先平仓'
-      : !currentBar
-        ? '数据未就绪'
-        : undefined;
+      : lookback
+        ? '回看模式，不能开仓'
+        : !currentBar
+          ? '数据未就绪'
+          : undefined;
 
   const jumpToBar = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = Number(e.target.value);
@@ -60,12 +68,21 @@ export default function App() {
     usePracticeStore.setState({ cursor: idx });
   };
 
+  const revealed = useMemo(
+    () => (store.cursor >= 0 ? store.bars1h.slice(0, store.cursor + 1) : []),
+    [store.bars1h, store.cursor],
+  );
+
+  const marketLabel =
+    store.markets.find((m) => m.market === store.market)?.label ??
+    (store.market === 'perp' ? 'U本位合约' : store.market === 'spot' ? '现货' : '链上美股');
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">K</span>
-          <div>
+          <div className="brand-text">
             <div className="brand-title">K线刻意练习台</div>
             <div className="brand-sub">4h 看趋势 · 1h 入场 · 看不见未来</div>
           </div>
@@ -131,26 +148,41 @@ export default function App() {
               <div className="view-loading">选择一个标的开练</div>
             ) : (
               <>
-                <DualChart
+                <MarketHeader
+                  symbol={store.symbol}
+                  market={store.market}
+                  marketLabel={marketLabel}
+                  revealed={revealed}
+                  period={store.chartPeriod}
+                />
+
+                <ChartPanel
                   symbol={store.symbol}
                   bars1h={store.bars1h}
                   cursor={store.cursor}
                   openTrade={store.openTrade}
                   indicators4h={store.indicators4h}
                   indicators1h={store.indicators1h}
+                  period={store.chartPeriod}
+                  onPeriodChange={store.setChartPeriod}
                 />
+
                 <ReplayControls
                   playing={store.playing}
                   speed={store.speed}
                   cursor={store.cursor}
                   total={store.bars1h.length}
+                  lookback={lookback}
                   onPlay={store.play}
                   onPause={store.pause}
                   onNext={store.next}
+                  onPrev={store.prev}
                   onJump4h={store.jump4h}
+                  onBack4h={store.back4h}
                   onSpeed={store.setSpeed}
                   onReset={store.resetReplay}
                 />
+
                 <div className="jump-row">
                   <StartTimePicker
                     bars1h={store.bars1h}
@@ -217,6 +249,15 @@ export default function App() {
                 {tradeDisabledReason && <span className="trade-trigger-note">{tradeDisabledReason}</span>}
               </button>
             )}
+
+            <AccountPanel
+              equity={store.equity}
+              equityStart={store.equityStart}
+              openTrade={store.openTrade}
+              closedTrades={store.closedTrades}
+              maxDrawdown={store.maxDrawdown}
+              currentPrice={currentPrice}
+            />
 
             {store.closedTrades.length > 0 && !store.openTrade && (
               <PositionPanel

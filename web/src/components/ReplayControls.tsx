@@ -5,10 +5,14 @@ interface Props {
   speed: number;
   cursor: number;
   total: number;
+  /** 是否处于「回看模式」（游标落后于已回放到的最远处） */
+  lookback: boolean;
   onPlay: () => void;
   onPause: () => void;
   onNext: () => void;
+  onPrev: () => void;
   onJump4h: () => void;
+  onBack4h: () => void;
   onSpeed: (ms: number) => void;
   onReset: () => void;
 }
@@ -25,10 +29,13 @@ export function ReplayControls({
   speed,
   cursor,
   total,
+  lookback,
   onPlay,
   onPause,
   onNext,
+  onPrev,
   onJump4h,
+  onBack4h,
   onSpeed,
   onReset,
 }: Props) {
@@ -39,21 +46,27 @@ export function ReplayControls({
   }, [playing, speed, onNext]);
 
   const atEnd = cursor >= total - 1;
+  const atStart = cursor <= 0;
 
   return (
     <div className="replay-controls">
-      <button className="btn primary" onClick={playing ? onPause : onPlay} disabled={atEnd}>
-        {playing ? '⏸ 暂停' : '▶ 播放'}
-      </button>
-      <button className="btn" onClick={onNext} disabled={atEnd}>
-        ⏭ 单步
-      </button>
-      <button className="btn" onClick={onJump4h} disabled={atEnd}>
-        ⏩ 下一根4h
-      </button>
-      <button className="btn ghost" onClick={onReset}>
-        ↺ 重置
-      </button>
+      <div className="replay-btns">
+        <button className="btn" onClick={onBack4h} disabled={atStart} title="后退一根 4h（4 根 1h）">
+          ⏪ 退4h
+        </button>
+        <button className="btn" onClick={onPrev} disabled={atStart} title="后退一根 1h">
+          ◀ 后退
+        </button>
+        <button className="btn primary" onClick={playing ? onPause : onPlay} disabled={atEnd}>
+          {playing ? '⏸ 暂停' : '▶ 播放'}
+        </button>
+        <button className="btn" onClick={onNext} disabled={atEnd} title="前进一根 1h">
+          单步 ▶
+        </button>
+        <button className="btn" onClick={onJump4h} disabled={atEnd} title="前进一根 4h">
+          4h ⏩
+        </button>
+      </div>
 
       <div className="speed-group">
         {SPEEDS.map((s) => (
@@ -65,6 +78,9 @@ export function ReplayControls({
             {s.label}
           </button>
         ))}
+        <button className="btn tiny ghost" onClick={onReset}>
+          ↺ 重置
+        </button>
       </div>
 
       <div className="replay-progress">
@@ -74,6 +90,7 @@ export function ReplayControls({
         />
       </div>
       <div className="replay-count">
+        {lookback && <span className="lookback-badge">回看</span>}
         {cursor + 1} / {total}
       </div>
     </div>

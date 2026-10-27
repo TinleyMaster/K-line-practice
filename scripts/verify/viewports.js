@@ -123,7 +123,7 @@ const PROBE = () => {
   }
 
   const side = document.querySelector('.side-area');
-  const paneSwitch = document.querySelector('.pane-switch');
+  const paneSwitch = document.querySelector('.period-tabs');
   const marketTabs = [...document.querySelectorAll('.market-tab')].map((b) => b.textContent.trim());
 
   return {

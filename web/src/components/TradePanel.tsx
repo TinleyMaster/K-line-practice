@@ -90,7 +90,7 @@ export function TradePanel({
   };
 
   return (
-    <div className="panel">
+    <div className="panel trade-panel">
       <div className="panel-head">
         <h3>开仓</h3>
         <div className="panel-head-right">

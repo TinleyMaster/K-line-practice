@@ -1,19 +1,33 @@
+/* ==================================================================
+   K线刻意练习台 —— 币安风格（Binance-inspired）
+   ------------------------------------------------------------------
+   色板取自币安现货/合约页：
+     背景 #0B0E11   面板 #161A1E   次级面板 #1E2329   分隔 #2B3139
+     文字 #EAECEF   次级 #848E9C   弱化 #5E6673
+     涨 #F6465D（红）  跌 #0ECB81（绿）  强调 #FCD535（币安黄）
+   设计原则：细边框、几乎不用圆角、小字号高信息密度、颜色只用来表达涨跌。
+   ================================================================== */
+
 :root {
-  --bg: #0b0e14;
-  --bg-panel: #131722;
-  --bg-panel-2: #1a1f2e;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --text: #d7dae0;
-  --text-dim: #8b93a3;
-  --text-muted: #6b7383;
-  --up: #ef4d4d;
-  --down: #22c55e;
-  --accent: #3b82f6;
-  --warn: #f0a020;
-  --radius: 8px;
+  --bg: #0b0e11;
+  --bg-panel: #161a1e;
+  --bg-panel-2: #1e2329;
+  --bg-hover: #2b3139;
+  --border: #2b3139;
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --text: #eaecef;
+  --text-dim: #848e9c;
+  --text-muted: #5e6673;
+  --up: #f6465d;
+  --down: #0ecb81;
+  --accent: #fcd535;
+  --accent-ink: #181a20;
+  --warn: #f0b90b;
+  --radius: 4px;
   /* 练习台侧栏宽度：回放条吸底时要用它算出 right 偏移，避免遮挡右侧交易面板 */
   --side-col: 340px;
+  /* 单图模式下一个图表要占满高度 */
+  --chart-height: 430px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
@@ -48,7 +62,8 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px 16px;
+  padding: 0 16px;
+  height: 56px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
@@ -57,19 +72,24 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 210px;
+  min-width: 200px;
 }
 
+/* 币安 logo 是黄色菱形 —— 这里用黄色方块呼应 */
 .brand-mark {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
   font-size: 16px;
+  border-radius: 4px;
+}
+
+.brand-text {
+  line-height: 1.25;
 }
 
 .brand-title {
@@ -86,11 +106,12 @@ body {
   flex: 1;
   display: flex;
   justify-content: center;
+  min-width: 0;
 }
 
 .topbar-right {
   display: flex;
-  gap: 14px;
+  gap: 18px;
   align-items: center;
 }
 
@@ -101,16 +122,22 @@ body {
   line-height: 1.25;
 }
 
+.stat-chip .muted {
+  font-size: 11px;
+}
+
 .stat-chip strong {
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- 标签页 ---------- */
+/* ---------- 标签页（币安顶部导航） ---------- */
 .tabs {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   padding: 0 16px;
+  height: 44px;
+  align-items: stretch;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
@@ -119,11 +146,12 @@ body {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  padding: 9px 14px;
-  font-size: 13px;
+  color: var(--text-dim);
+  padding: 0 16px;
+  font-size: 14px;
   font-family: inherit;
   cursor: pointer;
+  transition: color 0.12s;
 }
 
 .tab:hover {
@@ -131,7 +159,7 @@ body {
 }
 
 .tab.active {
-  color: var(--text);
+  color: var(--accent);
   border-bottom-color: var(--accent);
 }
 
@@ -160,115 +188,281 @@ body {
   top: 12px;
 }
 
-/* ---------- 图表 ---------- */
-.dual-chart {
+/* ---------- 行情头（币安行情条） ---------- */
+.market-head {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.chart-block {
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 10px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 8px;
+}
+
+.market-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.market-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.market-symbol {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.market-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.market-badge.perp {
+  color: #fcd535;
+  border-color: rgba(252, 213, 53, 0.35);
+}
+
+.market-badge.spot {
+  color: #0ecb81;
+  border-color: rgba(14, 203, 129, 0.35);
+}
+
+.market-badge.stock {
+  color: #7aa2f7;
+  border-color: rgba(122, 162, 247, 0.35);
+}
+
+.market-period {
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+
+.market-price {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.price-now {
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.price-chg {
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.market-head-stats {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.mh-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mh-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.mh-stat-value {
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 图表面板 ---------- */
+.chart-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 周期切换（币安周期行） */
+.period-tabs {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.period-tab {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  padding: 5px 10px 4px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.period-tab:hover {
+  color: var(--text);
+}
+
+.period-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.period-main {
+  font-size: 14px;
+}
+
+.period-sub {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* OHLC 详情条 */
+.ohlc-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  min-height: 26px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ohlc-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ohlc-lock {
+  font-size: 10px;
+  color: var(--accent);
+  border: 1px solid rgba(252, 213, 53, 0.4);
+  background: rgba(252, 213, 53, 0.12);
+  border-radius: 2px;
+  padding: 0 4px;
+}
+
+.ohlc-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ohlc-label {
+  color: var(--text-muted);
+}
+
+.ohlc-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.chart-canvas-wrap {
+  position: relative;
 }
 
 /* 图表画布高度由 CSS 统一控制（媒体查询可覆盖），不写死在组件里 */
 .chart-canvas {
   width: 100%;
-  height: var(--chart-height, 300px);
+  height: var(--chart-height, 430px);
   /* 图表需要处理自己的拖拽/缩放手势，禁止浏览器接管 */
   touch-action: none;
 }
 
-/* 窄屏：4h / 1h 单图切换 */
-.pane-switch {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+/* 锁定 K 线的竖向标记 */
+.pin-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed rgba(252, 213, 53, 0.9);
+  pointer-events: none;
+  z-index: 5;
 }
 
-.pane-tab {
-  flex: 1;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  padding: 9px 8px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.pane-tab.active {
-  background: var(--bg-panel-2);
-  border-color: var(--accent);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.dual-chart.narrow .chart-block.pane-off {
-  display: none;
-}
-
-.chart-title {
+.chart-foot {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 4px 6px;
-}
-
-.chart-tag {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
   font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
-  letter-spacing: 0.3px;
-}
-
-.chart-tag.trend {
-  background: rgba(139, 92, 246, 0.16);
-  color: #a78bfa;
-}
-
-.chart-tag.entry {
-  background: rgba(59, 130, 246, 0.16);
-  color: #60a5fa;
-}
-
-.chart-hint {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 /* ---------- 回放控制 ---------- */
 .replay-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-top: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   flex-wrap: wrap;
 }
 
+.replay-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .speed-group {
   display: flex;
   gap: 4px;
-  margin-left: 6px;
+  margin-left: 4px;
+  flex-wrap: wrap;
 }
 
 .replay-progress {
   flex: 1;
   min-width: 120px;
   height: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-panel-2);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -283,59 +477,76 @@ body {
   font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-  min-width: 74px;
+  min-width: 92px;
   text-align: right;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.lookback-badge {
+  color: var(--accent);
+  border: 1px solid rgba(252, 213, 53, 0.4);
+  background: rgba(252, 213, 53, 0.12);
+  border-radius: 2px;
+  padding: 0 4px;
+  font-size: 10px;
 }
 
 .jump-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
   font-size: 12px;
 }
 
 /* ---------- 按钮 ---------- */
 .btn {
   background: var(--bg-panel-2);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   color: var(--text);
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  white-space: nowrap;
 }
 
 .btn:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: #222839;
+  background: var(--bg-hover);
+  border-color: #474d57;
 }
 
 .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: #2f6fd0;
+  background: #e5c22f;
+  border-color: #e5c22f;
 }
 
 .btn.danger {
-  background: rgba(239, 77, 77, 0.16);
-  border-color: rgba(239, 77, 77, 0.5);
-  color: #f87171;
+  background: rgba(246, 70, 93, 0.1);
+  border-color: rgba(246, 70, 93, 0.5);
+  color: var(--up);
 }
 
 .btn.danger:hover:not(:disabled) {
-  background: rgba(239, 77, 77, 0.26);
+  background: rgba(246, 70, 93, 0.2);
 }
 
 .btn.ghost {
@@ -355,20 +566,20 @@ body {
 
 .btn.active {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.16);
-  color: #93c5fd;
+  background: rgba(252, 213, 53, 0.12);
+  color: var(--accent);
 }
 
 .btn.success.active {
   border-color: var(--down);
-  background: rgba(34, 197, 94, 0.16);
-  color: #4ade80;
+  background: rgba(14, 203, 129, 0.12);
+  color: var(--down);
 }
 
 .btn.danger.active {
   border-color: var(--up);
-  background: rgba(239, 77, 77, 0.18);
-  color: #f87171;
+  background: rgba(246, 70, 93, 0.12);
+  color: var(--up);
 }
 
 .btn.side {
@@ -379,23 +590,23 @@ body {
 
 .btn.side.long.active {
   border-color: var(--up);
-  background: rgba(239, 77, 77, 0.16);
-  color: #f87171;
+  background: rgba(246, 70, 93, 0.12);
+  color: var(--up);
 }
 
 .btn.side.short.active {
   border-color: var(--down);
-  background: rgba(34, 197, 94, 0.16);
-  color: #4ade80;
+  background: rgba(14, 203, 129, 0.12);
+  color: var(--down);
 }
 
 /* ---------- 表单 ---------- */
 .input {
   background: var(--bg);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   color: var(--text);
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 12px;
   font-family: inherit;
   width: 100%;
@@ -441,11 +652,13 @@ body {
   flex: 1;
 }
 
+/* 顶栏：市场切换 + 搜索 + 标的下拉，挤在一行（币安顶部导航的密度） */
 .symbol-picker {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 560px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  max-width: 660px;
   width: 100%;
 }
 
@@ -453,7 +666,8 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .symbol-picker-row .input:first-child {
@@ -471,15 +685,16 @@ body {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+  flex: none;
 }
 
 .market-tab {
-  background: var(--bg-panel-2);
-  border: 1px solid var(--border-strong);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
+  padding: 3px 10px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
@@ -491,9 +706,8 @@ body {
 }
 
 .market-tab.active {
-  border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.16);
-  color: #93c5fd;
+  border-bottom-color: var(--accent);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -550,28 +764,72 @@ body {
 
 .notice {
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 12px;
   margin: 8px 0;
 }
 
 .notice.warn {
-  background: rgba(240, 160, 32, 0.12);
-  color: #f0a020;
+  background: rgba(240, 185, 11, 0.1);
+  color: var(--warn);
 }
 
 .notice.error {
-  background: rgba(239, 77, 77, 0.12);
-  color: #f87171;
+  background: rgba(246, 70, 93, 0.1);
+  color: var(--up);
 }
 
 .notice.info {
-  background: rgba(59, 130, 246, 0.12);
-  color: #93c5fd;
+  background: rgba(122, 162, 247, 0.1);
+  color: #7aa2f7;
 }
 
 .notice.banner {
   margin: 10px 16px;
+}
+
+/* ---------- 侧栏账户概览 ---------- */
+.account-panel {
+  padding: 10px 12px;
+}
+
+.account-equity {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+
+.account-equity strong {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-pnl {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.account-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.account-grid strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 检查表 ---------- */
@@ -580,7 +838,7 @@ body {
   padding: 10px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .checklist-title {
@@ -630,7 +888,7 @@ body {
   margin-top: 10px;
   padding: 10px;
   background: var(--bg);
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
 }
 
@@ -658,19 +916,19 @@ body {
 
 .side-badge {
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 2px;
   font-size: 12px;
   font-weight: 600;
 }
 
 .side-badge.long {
-  background: rgba(239, 77, 77, 0.16);
-  color: #f87171;
+  background: rgba(246, 70, 93, 0.14);
+  color: var(--up);
 }
 
 .side-badge.short {
-  background: rgba(34, 197, 94, 0.16);
-  color: #4ade80;
+  background: rgba(14, 203, 129, 0.14);
+  color: var(--down);
 }
 
 .kv-grid {
@@ -695,7 +953,7 @@ body {
   margin-top: 10px;
   padding: 8px 10px;
   background: var(--bg);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .position-pnl > div {
@@ -751,7 +1009,7 @@ body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.68);
+  background: rgba(0, 0, 0, 0.7);
   display: grid;
   place-items: center;
   z-index: 100;
@@ -763,8 +1021,8 @@ body {
   max-height: 90vh;
   overflow-y: auto;
   background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 18px;
 }
 
@@ -786,7 +1044,7 @@ body {
   gap: 10px;
   padding: 12px;
   background: var(--bg);
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
 }
 
@@ -818,10 +1076,10 @@ body {
 
 .chip {
   background: var(--bg-panel-2);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   color: var(--text-dim);
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: 2px;
   font-size: 11px;
   font-family: inherit;
   cursor: pointer;
@@ -829,14 +1087,14 @@ body {
 
 .chip.active {
   border-color: var(--accent);
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.14);
+  color: var(--accent);
+  background: rgba(252, 213, 53, 0.1);
 }
 
 .chip.wrong.active {
   border-color: var(--up);
-  color: #f87171;
-  background: rgba(239, 77, 77, 0.14);
+  color: var(--up);
+  background: rgba(246, 70, 93, 0.1);
 }
 
 /* ---------- 统计 ---------- */
@@ -885,12 +1143,12 @@ body {
 
 .table td {
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border-soft);
   font-variant-numeric: tabular-nums;
 }
 
 .table tr.row-bad td {
-  background: rgba(239, 77, 77, 0.06);
+  background: rgba(246, 70, 93, 0.06);
 }
 
 .r-bars {
@@ -914,14 +1172,14 @@ body {
 
 .r-bar-track {
   height: 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
+  background: var(--bg-panel-2);
+  border-radius: 2px;
   overflow: hidden;
 }
 
 .r-bar-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 .r-bar-fill.neg {
@@ -1007,8 +1265,8 @@ body {
 
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -1016,12 +1274,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 5px;
+  background: #2b3139;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: #474d57;
 }
 
 @media (max-width: 1100px) {
@@ -1080,12 +1338,16 @@ textarea {
   .tab,
   .chip,
   .market-tab,
-  .pane-tab {
+  .period-tab {
     min-height: 44px;
     min-width: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .tab {
+    display: flex;
   }
 
   /* 速度按钮（0.5s/1s/2s/4s）也必须够大，四连排 44px 仍能塞进 390px 宽 */
@@ -1120,10 +1382,6 @@ textarea {
     height: 20px;
     flex: 0 0 auto;
   }
-
-  .tab {
-    padding: 11px 14px;
-  }
 }
 
 /* iOS Safari：任何指针为粗指针的设备上，输入框字号必须 ≥16px
@@ -1140,6 +1398,10 @@ textarea {
 
 /* ---- 3. iPad 竖屏及以下（≤1024px）：单列 + 侧栏双列 ---- */
 @media (max-width: 1024px) {
+  :root {
+    --chart-height: 380px;
+  }
+
   .practice-layout {
     grid-template-columns: 1fr;
     gap: 10px;
@@ -1158,14 +1420,24 @@ textarea {
     grid-column: 1 / -1;
   }
 
-  /* iPad 宽度够，图表可以更高 */
-  :root {
-    --chart-height: 320px;
+  .topbar {
+    padding: 0 12px;
+    gap: 10px;
+    /* iPad 竖屏宽度不够一行塞下「品牌 + 市场切换 + 搜索 + 统计」，
+       让 symbol picker 独占第二行，避免互相挤压 */
+    flex-wrap: wrap;
+    height: auto;
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
 
-  .topbar {
-    padding: 10px 12px;
-    gap: 10px;
+  .topbar-mid {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .topbar-right {
+    margin-left: auto;
   }
 
   .brand {
@@ -1178,6 +1450,9 @@ textarea {
 
   .symbol-picker {
     max-width: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
   }
 
   .symbol-picker-row .select {
@@ -1186,6 +1461,10 @@ textarea {
 
   .stats-grid {
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+
+  .market-head-stats {
+    gap: 16px;
   }
 }
 
@@ -1196,15 +1475,15 @@ textarea {
   }
 
   :root {
-    --chart-height: 300px;
+    --chart-height: 360px;
     --side-col: 320px;
   }
 }
 
-/* ---- 5. 手机（≤767px）：单图模式 + 紧凑布局 ---- */
+/* ---- 5. 手机（≤767px）：紧凑布局 ---- */
 @media (max-width: 767px) {
   :root {
-    --chart-height: clamp(220px, 42dvh, 380px);
+    --chart-height: clamp(240px, 44dvh, 420px);
   }
 
   body {
@@ -1215,12 +1494,21 @@ textarea {
     min-height: 100dvh;
   }
 
-  /* 顶栏改为纵向堆叠 */
+  /* 顶栏改为纵向堆叠：品牌 → 市场/搜索 → 权益统计 */
   .topbar {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
+    height: auto;
     padding: 8px 10px;
+  }
+
+  .topbar-mid {
+    order: 1;
+  }
+
+  .topbar-right {
+    order: 2;
   }
 
   .brand {
@@ -1228,9 +1516,9 @@ textarea {
   }
 
   .brand-mark {
-    width: 28px;
-    height: 28px;
-    font-size: 14px;
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
   }
 
   .brand-title {
@@ -1260,7 +1548,7 @@ textarea {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 6px;
-    background: var(--bg);
+    background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 6px 8px;
@@ -1280,12 +1568,14 @@ textarea {
     top: 0;
     z-index: 30;
     padding: 0 8px;
+    height: 42px;
     overflow-x: auto;
   }
 
   .tab {
     flex: 1;
     min-width: 96px;
+    padding: 0 8px;
   }
 
   .practice-layout {
@@ -1305,15 +1595,23 @@ textarea {
     margin-top: 0;
     padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
     gap: 6px;
-    background: rgba(19, 23, 34, 0.96);
+    background: rgba(22, 26, 30, 0.97);
     backdrop-filter: blur(8px);
-    border-color: var(--border-strong);
-    border-top: 1px solid var(--border-strong);
+    border-color: var(--border);
+    border-top: 1px solid var(--border);
     box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.45);
   }
 
   .replay-controls .btn {
     padding: 9px 12px;
+  }
+
+  .replay-btns {
+    width: 100%;
+  }
+
+  .replay-btns .btn {
+    flex: 1;
   }
 
   .speed-group {
@@ -1328,6 +1626,38 @@ textarea {
 
   .tiny-input {
     width: 100px;
+  }
+
+  /* 行情头 */
+  .market-head {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .price-now {
+    font-size: 22px;
+  }
+
+  .market-head-stats {
+    gap: 14px;
+    width: 100%;
+  }
+
+  /* 图表工具条：周期 Tab 独占一行，OHLC 详情条在下一行铺满 */
+  .chart-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  .period-tabs {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ohlc-strip {
+    gap: 10px;
+    font-size: 11px;
   }
 
   /* 侧栏单列 */
@@ -1368,7 +1698,7 @@ textarea {
   .modal {
     width: 100%;
     max-height: 92dvh;
-    border-radius: 14px 14px 0 0;
+    border-radius: 8px 8px 0 0;
     padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
   }
 
@@ -1382,12 +1712,12 @@ textarea {
 }
 
 /* ---- 6. 矮屏横屏（手机横放）：压缩纵向占用 ----
-   390px 高的屏幕要同时装下：顶栏 + tabs + 4h/1h 切换 + 图表 + 吸底回放条。
+   390px 高的屏幕要同时装下：顶栏 + tabs + 周期切换 + 图表 + 吸底回放条。
    做法：① 顶栏压成一行（市场 Tab 与搜索框并排）；② 图表高度随视口高度自适应，
    保证蜡烛主图不被吸底条盖住。 */
 @media (max-height: 520px) and (orientation: landscape) {
   :root {
-    --chart-height: clamp(180px, calc(100dvh - 190px), 220px);
+    --chart-height: clamp(180px, calc(100dvh - 190px), 240px);
   }
 
   .topbar {
@@ -1395,6 +1725,7 @@ textarea {
     padding: 4px 8px;
     gap: 8px;
     align-items: center;
+    height: auto;
   }
 
   .brand-sub,
@@ -1408,9 +1739,9 @@ textarea {
   }
 
   .brand-mark {
-    width: 24px;
-    height: 24px;
-    font-size: 12px;
+    width: 22px;
+    height: 22px;
+    font-size: 11px;
   }
 
   /* 市场 Tab 与搜索框并排，顶栏只占一行 */
@@ -1444,22 +1775,28 @@ textarea {
 
   .tabs {
     padding: 0 6px;
+    height: 36px;
   }
 
   .tab {
     padding: 0 14px;
   }
 
-  .pane-switch {
-    padding: 3px;
+  .market-head {
+    padding: 6px 10px;
+    margin-bottom: 6px;
   }
 
-  .pane-tab {
-    padding: 0 8px;
+  .market-head-stats {
+    display: none;
   }
 
-  .chart-title {
-    padding: 0 4px 4px;
+  .chart-toolbar {
+    padding: 4px 8px;
+  }
+
+  .chart-foot {
+    display: none;
   }
 
   .practice-layout {
@@ -1481,9 +1818,9 @@ textarea {
     margin-top: 0;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
     gap: 8px;
-    background: rgba(19, 23, 34, 0.96);
+    background: rgba(22, 26, 30, 0.97);
     backdrop-filter: blur(10px);
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border);
     border-radius: 0;
     box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.45);
   }
@@ -1549,9 +1886,9 @@ textarea {
   }
 }
 
-/* ============================================================
+/* ==================================================================
    v3 增量：开仓面板折叠 / 起点设置 / 技术指标选择器
-   ============================================================ */
+   ================================================================== */
 
 /* ---- 开仓面板折叠触发按钮 ---- */
 .trade-open-trigger {
@@ -1590,14 +1927,10 @@ textarea {
 }
 
 /* ---- 工具行分隔 ---- */
-.jump-row {
-  flex-wrap: wrap;
-}
-
 .jump-sep {
   width: 1px;
   height: 16px;
-  background: var(--border-strong);
+  background: var(--border);
   margin: 0 4px;
 }
 
@@ -1614,11 +1947,11 @@ textarea {
   align-items: center;
   gap: 6px;
   background: var(--bg-panel-2);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   color: var(--text);
   padding: 5px 10px;
   min-height: 30px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
@@ -1628,18 +1961,19 @@ textarea {
 
 .start-trigger:hover,
 .ind-trigger:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: #222839;
+  border-color: #474d57;
+  background: var(--bg-hover);
 }
 
 .start-trigger.active,
 .ind-trigger.active {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.14);
+  background: rgba(252, 213, 53, 0.12);
+  color: var(--accent);
 }
 
 .start-trigger.manual {
-  border-color: rgba(59, 130, 246, 0.55);
+  border-color: rgba(252, 213, 53, 0.55);
 }
 
 .start-value {
@@ -1652,9 +1986,9 @@ textarea {
   font-size: 10px;
   margin-left: 5px;
   padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
+  border-radius: 2px;
+  background: rgba(252, 213, 53, 0.16);
+  color: var(--accent);
 }
 
 .ind-trigger-count {
@@ -1677,8 +2011,8 @@ textarea {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
   padding: 12px;
 }
@@ -1742,17 +2076,17 @@ textarea {
   padding: 6px 10px;
   font-size: 12px;
   background: var(--bg-panel-2);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   font-family: inherit;
 }
 
 .ind-period-tab.active {
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(252, 213, 53, 0.14);
   border-color: var(--accent);
-  color: #93c5fd;
+  color: var(--accent);
 }
 
 .ind-group {
@@ -1788,7 +2122,7 @@ textarea {
   align-items: center;
   gap: 6px;
   padding: 4px 7px;
-  border-radius: 5px;
+  border-radius: 2px;
   cursor: pointer;
   font-size: 12px;
   border: 1px solid transparent;
@@ -1800,8 +2134,8 @@ textarea {
 }
 
 .ind-item.on {
-  background: rgba(59, 130, 246, 0.13);
-  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(252, 213, 53, 0.1);
+  border-color: rgba(252, 213, 53, 0.35);
 }
 
 .ind-item.limited {
@@ -1813,7 +2147,7 @@ textarea {
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
-  accent-color: #3b82f6;
+  accent-color: #fcd535;
 }
 
 .ind-name {

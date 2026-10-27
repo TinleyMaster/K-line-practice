@@ -51,7 +51,7 @@ async function runCase(browser, c) {
   try {
     await page.setViewport(c.vp);
     await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 60000 });
-    await page.waitForSelector('.chart-block canvas', { timeout: 60000 });
+    await page.waitForSelector('.chart-canvas canvas', { timeout: 60000 });
 
     // 切市场
     await page.evaluate((label) => {
@@ -206,11 +206,17 @@ async function runCase(browser, c) {
       const b = [...document.querySelectorAll('.modal .btn')].find((x) => x.textContent.includes('保存复盘'));
       b?.click();
     });
-    await sleep(2200);
-    const afterJournal = await page.evaluate(() => ({
-      modalGone: !document.querySelector('.modal'),
-      equity: document.querySelector('.stat-chip strong')?.textContent?.trim(),
-    }));
+    // 复盘落库要过一次远程 DB（Tailscale DERP 中继 ~271ms RTT），
+    // 固定 sleep 会偶发超时 —— 改成轮询等弹窗消失，最长 15s。
+    let afterJournal = null;
+    for (let i = 0; i < 30; i++) {
+      await sleep(500);
+      afterJournal = await page.evaluate(() => ({
+        modalGone: !document.querySelector('.modal'),
+        equity: document.querySelector('.stat-chip strong')?.textContent?.trim(),
+      }));
+      if (afterJournal.modalGone) break;
+    }
     if (!afterJournal.modalGone) throw new Error('复盘弹窗未关闭');
 
     await page.screenshot({ path: path.join(OUT, `flow-${name}-after.png`) });

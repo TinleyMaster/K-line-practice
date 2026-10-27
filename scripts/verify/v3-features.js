@@ -53,9 +53,10 @@ try {
   console.log('\n═══ ① 开仓面板折叠 ═══');
 
   // 1.1 默认折叠：只有按钮，没有完整表单
+  //     注：侧栏还有「练习账户」概览卡（.account-panel），所以这里精确匹配开仓表单 .trade-panel
   const collapsed = await page.evaluate(() => ({
     trigger: !!document.querySelector('.trade-open-trigger'),
-    panel: !!document.querySelector('.side-area .panel'),
+    panel: !!document.querySelector('.side-area .trade-panel'),
     setupSelect: !!document.querySelector('.side-area select'),
   }));
   log('默认折叠（显示按钮）', collapsed.trigger, JSON.stringify(collapsed));
@@ -68,6 +69,7 @@ try {
     setupSelect: !!document.querySelector('.side-area select'),
     collapseBtn: !!document.querySelector('.panel-collapse'),
     trigger: !!document.querySelector('.trade-open-trigger'),
+    sideHeight: Math.round(document.querySelector('.side-area').getBoundingClientRect().height),
   }));
   log('点击后展开表单', expanded.setupSelect, JSON.stringify(expanded));
   log('展开后按钮消失', !expanded.trigger);
@@ -83,11 +85,16 @@ try {
   log('收起按钮生效', recollapsed.trigger && !recollapsed.setupSelect);
 
   // 1.4 折叠态下侧栏占位小（图表空间更大）
+  //     注：v4 起侧栏常驻「练习账户」概览卡，故改为「折叠态显著矮于展开态」
   const sideHeight = await page.evaluate(() => {
     const el = document.querySelector('.side-area');
     return el ? Math.round(el.getBoundingClientRect().height) : 0;
   });
-  log('折叠态侧栏高度收窄', sideHeight < 200, `${sideHeight}px`);
+  log(
+    '折叠态侧栏高度收窄',
+    sideHeight < 300 && sideHeight < expanded.sideHeight * 0.7,
+    `${sideHeight}px（展开态 ${expanded.sideHeight}px）`,
+  );
 
   console.log('\n═══ ② 自定义练习起点 ═══');
 
@@ -212,13 +219,11 @@ try {
   await sleep(1500);
 
   const paneInfo = await page.evaluate(() => {
-    // 独立副图会在 .chart-canvas 里多出 canvas 图层
-    const c4 = document.querySelectorAll('.chart-canvas')[0];
-    const c1 = document.querySelectorAll('.chart-canvas')[1];
+    // 独立副图会在 .chart-canvas 里多出 canvas 图层（v4 起同屏只有一个图表）
+    const c = document.querySelectorAll('.chart-canvas')[0];
     return {
-      c4Canvases: c4 ? c4.querySelectorAll('canvas').length : 0,
-      c1Canvases: c1 ? c1.querySelectorAll('canvas').length : 0,
-      c4Height: c4 ? Math.round(c4.getBoundingClientRect().height) : 0,
+      canvases: c ? c.querySelectorAll('canvas').length : 0,
+      height: c ? Math.round(c.getBoundingClientRect().height) : 0,
       trigger: document.querySelector('.ind-trigger-count')?.textContent?.trim(),
     };
   });
@@ -272,7 +277,12 @@ try {
       canvases: b.querySelectorAll('canvas').length,
     }));
   });
-  log('图表正常渲染', chartState.length === 2 && chartState.every((c) => c.h > 50), JSON.stringify(chartState));
+  // v4 起改为「单图 + 4h/1h Tab 切换」，同屏只有 1 个图表容器
+  log(
+    '图表正常渲染',
+    chartState.length === 1 && chartState[0].h > 50 && chartState[0].canvases > 0,
+    JSON.stringify(chartState),
+  );
 
   console.log('\n═══ 持久化验证 ═══');
   // 刷新后指标配置应保留

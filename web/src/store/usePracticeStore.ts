@@ -46,6 +46,8 @@ interface PracticeState {
   /* 回放 */
   cursor: number;
   startCursor: number;
+  /** 已回放到的最远位置。cursor < maxCursor 即为「回看模式」（往回看，不能开仓） */
+  maxCursor: number;
   playing: boolean;
   speed: number;
   /** 练习起点模式：auto = 自动推导，manual = 用户指定 */
@@ -56,6 +58,8 @@ interface PracticeState {
   /* 指标配置 */
   indicators4h: string[];
   indicators1h: string[];
+  /** 当前图表显示的周期（单图 + Tab 切换） */
+  chartPeriod: '4h' | '1h';
 
   /* UI */
   /** 开仓面板是否展开 */
@@ -85,6 +89,10 @@ interface PracticeState {
   startReplay: (fromIndex?: number) => Promise<void>;
   resetReplay: () => void;
   next: () => void;
+  /** 后退一根 1h（回看） */
+  prev: () => void;
+  /** 后退一根 4h（回看） */
+  back4h: () => void;
   jump4h: () => void;
   play: () => void;
   pause: () => void;
@@ -92,6 +100,8 @@ interface PracticeState {
   setStartTime: (time: number | null) => void;
   /** 设置某周期的指标选择 */
   setIndicators: (period: '4h' | '1h', names: string[]) => void;
+  /** 切换图表显示的周期 */
+  setChartPeriod: (period: '4h' | '1h') => void;
   /** 展开/收起开仓面板 */
   setTradePanelOpen: (open: boolean) => void;
   openPosition: (draft: TradeDraft) => Promise<{ ok: boolean; msg?: string }>;
@@ -161,6 +171,7 @@ export const usePracticeStore = create<PracticeState>()(
 
       cursor: -1,
       startCursor: -1,
+      maxCursor: -1,
       playing: false,
       speed: 1200,
       startMode: 'auto',
@@ -168,6 +179,7 @@ export const usePracticeStore = create<PracticeState>()(
 
       indicators4h: DEFAULT_4H,
       indicators1h: DEFAULT_1H,
+      chartPeriod: '4h',
 
       tradePanelOpen: false,
 
@@ -221,7 +233,7 @@ export const usePracticeStore = create<PracticeState>()(
         if (inMarket) {
           await get().selectSymbol(inMarket.symbol, market);
         } else {
-          set({ bars1h: [], bars4h: [], cursor: -1, openTrade: null, closedTrades: [] });
+          set({ bars1h: [], bars4h: [], cursor: -1, maxCursor: -1, openTrade: null, closedTrades: [] });
         }
       },
 
@@ -242,6 +254,7 @@ export const usePracticeStore = create<PracticeState>()(
             bars4h,
             cursor: start,
             startCursor: start,
+            maxCursor: start,
             openTrade: null,
             closedTrades: [],
             equity: DEFAULT_EQUITY,
@@ -272,6 +285,7 @@ export const usePracticeStore = create<PracticeState>()(
             manualStartTime: null,
             cursor: idx,
             startCursor: idx,
+            maxCursor: idx,
             openTrade: null,
             closedTrades: [],
             equity: DEFAULT_EQUITY,
@@ -291,6 +305,7 @@ export const usePracticeStore = create<PracticeState>()(
           manualStartTime: time,
           cursor: idx,
           startCursor: idx,
+          maxCursor: idx,
           openTrade: null,
           closedTrades: [],
           equity: DEFAULT_EQUITY,
@@ -310,6 +325,8 @@ export const usePracticeStore = create<PracticeState>()(
         else set({ indicators1h: normalized });
       },
 
+      setChartPeriod: (period) => set({ chartPeriod: period }),
+
       setTradePanelOpen: (open) => set({ tradePanelOpen: open }),
 
       startReplay: async (fromIndex) => {
@@ -319,6 +336,7 @@ export const usePracticeStore = create<PracticeState>()(
         set({
           cursor,
           startCursor: cursor,
+          maxCursor: cursor,
           openTrade: null,
           closedTrades: [],
           equity: DEFAULT_EQUITY,
@@ -347,6 +365,7 @@ export const usePracticeStore = create<PracticeState>()(
         const { cursor } = get();
         set({
           cursor: cursor >= 0 ? cursor : 0,
+          maxCursor: cursor >= 0 ? cursor : 0,
           openTrade: null,
           closedTrades: [],
           equity: DEFAULT_EQUITY,
@@ -355,6 +374,46 @@ export const usePracticeStore = create<PracticeState>()(
           equityCurve: [],
           pendingJournal: null,
         });
+      },
+
+      /**
+       * 后退一根 1h —— 回看模式。
+       *
+       * 语义边界（刻意保守，避免制造「时间旅行」的错觉）：
+       * - 只回看画面与浮动盈亏，**不撤销已平仓交易**（历史就是历史）；
+       * - 持仓期间最多退回入场那根 —— 再往前退，「持仓」在时间上就不成立了；
+       * - 权益曲线按游标截断，浮动盈亏按当前价重算；
+       * - 回看时 maxCursor 不变，游标回到 maxCursor 即退出回看模式。
+       */
+      prev: () => {
+        const state = get();
+        const { bars1h, cursor, openTrade } = state;
+        if (cursor <= 0) return;
+
+        let target = cursor - 1;
+        if (openTrade) {
+          const entryIdx = bars1h.findIndex((b) => b.time === openTrade.entryTime);
+          if (entryIdx >= 0 && target < entryIdx) target = entryIdx;
+        }
+
+        const bar = bars1h[target];
+        if (!bar) return;
+
+        const realized = state.closedTrades.reduce((s, t) => s + t.pnl, 0);
+        const floating = openTrade ? unrealizedPnl(openTrade, bar.close) : 0;
+        const equity = DEFAULT_EQUITY + realized + floating;
+
+        set({
+          cursor: target,
+          playing: false,
+          equity,
+          equityCurve: state.equityCurve.filter((p) => p.time <= bar.time),
+        });
+      },
+
+      /** 后退一根 4h（= 4 根 1h） */
+      back4h: () => {
+        for (let i = 0; i < 4; i++) get().prev();
       },
 
       next: () => {
@@ -390,6 +449,7 @@ export const usePracticeStore = create<PracticeState>()(
 
         set({
           cursor: nextCursor,
+          maxCursor: Math.max(state.maxCursor, nextCursor),
           openTrade: newOpen,
           closedTrades: newClosed,
           equity,
@@ -593,6 +653,7 @@ export const usePracticeStore = create<PracticeState>()(
         manualStartTime: s.manualStartTime,
         indicators4h: s.indicators4h,
         indicators1h: s.indicators1h,
+        chartPeriod: s.chartPeriod,
         tradePanelOpen: s.tradePanelOpen,
       }),
     },
