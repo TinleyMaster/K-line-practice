@@ -51,37 +51,46 @@ export function ReplayControls({
   return (
     <div className="replay-controls">
       <div className="replay-btns">
-        <button className="btn" onClick={onBack4h} disabled={atStart} title="后退一根 4h（4 根 1h）">
-          ⏪ 退4h
+        <button className="btn btn-step" onClick={onBack4h} disabled={atStart} title="后退一根 4h（4 根 1h）">
+          <span className="lbl-full">⏪ 退4h</span>
+          <span className="lbl-mini">⏪</span>
         </button>
-        <button className="btn" onClick={onPrev} disabled={atStart} title="后退一根 1h">
-          ◀ 后退
+        <button className="btn btn-step" onClick={onPrev} disabled={atStart} title="后退一根 1h">
+          <span className="lbl-full">◀ 后退</span>
+          <span className="lbl-mini">◀</span>
         </button>
-        <button className="btn primary" onClick={playing ? onPause : onPlay} disabled={atEnd}>
-          {playing ? '⏸ 暂停' : '▶ 播放'}
+        <button className="btn primary btn-play" onClick={playing ? onPause : onPlay} disabled={atEnd}>
+          <span className="lbl-full">{playing ? '⏸ 暂停' : '▶ 播放'}</span>
+          <span className="lbl-mini">{playing ? '⏸' : '▶'}</span>
         </button>
-        <button className="btn" onClick={onNext} disabled={atEnd} title="前进一根 1h">
-          单步 ▶
+        <button className="btn btn-step" onClick={onNext} disabled={atEnd} title="前进一根 1h">
+          <span className="lbl-full">单步 ▶</span>
+          <span className="lbl-mini">▶</span>
         </button>
-        <button className="btn" onClick={onJump4h} disabled={atEnd} title="前进一根 4h">
-          4h ⏩
+        <button className="btn btn-step" onClick={onJump4h} disabled={atEnd} title="前进一根 4h">
+          <span className="lbl-full">4h ⏩</span>
+          <span className="lbl-mini">⏩</span>
         </button>
       </div>
 
-      <div className="speed-group">
-        {SPEEDS.map((s) => (
-          <button
-            key={s.ms}
-            className={`btn tiny ${speed === s.ms ? 'active' : ''}`}
-            onClick={() => onSpeed(s.ms)}
-          >
-            {s.label}
-          </button>
-        ))}
-        <button className="btn tiny ghost" onClick={onReset}>
-          ↺ 重置
-        </button>
-      </div>
+      {/* 速度是「播放」的附属配置 —— 暂停时藏起来，点播放才展开 */}
+      {playing && (
+        <div className="speed-group">
+          {SPEEDS.map((s) => (
+            <button
+              key={s.ms}
+              className={`btn tiny ${speed === s.ms ? 'active' : ''}`}
+              onClick={() => onSpeed(s.ms)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <button className="btn tiny ghost replay-reset" onClick={onReset}>
+        ↺ 重置
+      </button>
 
       <div className="replay-progress">
         <div

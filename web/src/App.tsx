@@ -160,6 +160,7 @@ export default function App() {
                   symbol={store.symbol}
                   bars1h={store.bars1h}
                   cursor={store.cursor}
+                  startCursor={store.startCursor}
                   openTrade={store.openTrade}
                   indicators4h={store.indicators4h}
                   indicators1h={store.indicators1h}

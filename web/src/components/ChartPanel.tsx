@@ -10,14 +10,68 @@ import {
   type Styles,
 } from 'klinecharts';
 import type { Bar, OpenTrade } from '../types';
-import { derive4h, fmtPrice, fmtTime, pricePrecision } from '../engine/bars';
+import { derive4h, fmtPrice, fmtTime, pricePrecision, FOUR_HOURS, HOUR } from '../engine/bars';
 import { dir, fmtCompact, fmtPct, fmtSigned } from '../engine/format';
 import { getIndicatorSpec, splitByGroup, type IndicatorSpec } from '../engine/indicators';
 
 const CANDLE_PANE = 'candle_pane';
 const TRADE_GROUP = 'trade-lines';
 
-/** 币安配色：涨 #F6465D / 跌 #0ECB81，网格极淡，数字统一 #EAECEF */
+export type ChartPeriod = '4h' | '1h';
+
+/**
+ * 预热窗口：练习起点之前保留多少根 1h K 线喂给图表。
+ *
+ * 为什么必须留：技术指标（MA60 / BOLL / EMA…）需要足够的历史才能算出值。
+ * 如果只喂「起点之后」的数据，起点那根的指标全是空的 —— 用户看到的第一屏
+ * 没有任何依据，「4h 看趋势」这条规则根本落不了地。
+ *
+ *   - 4h：480 根 1h = 120 根 4h（够 MA60，也够看趋势结构）
+ *   - 1h：240 根 1h（够 MA60）
+ *
+ * 注意这只是「喂给图表的历史」，不涉及未来 —— 图表数据右端永远停在游标。
+ */
+const WARMUP_1H: Record<ChartPeriod, number> = { '4h': 480, '1h': 240 };
+
+/**
+ * 目标可见根数 —— 决定 barSpace，让「预热区 + 当前根」尽量铺满一屏。
+ * 数值偏大 → K 线变密；偏小 → 起点前的历史被挤出视野。
+ */
+const TARGET_VISIBLE: Record<ChartPeriod, number> = { '4h': 120, '1h': 200 };
+
+/**
+ * 预热窗口的锚点索引。
+ *
+ * 取「练习起点」与「当前游标」里较小的那个：
+ * 回看模式（cursor < startCursor）时若还用 startCursor 当锚点，
+ * 窗口左端会跑到游标右边 → 切片为空 → 图表直接空白。
+ */
+function resolveAnchor(startCursor: number, cursor: number): number {
+  if (cursor < 0) return -1;
+  if (startCursor < 0) return cursor;
+  return Math.min(startCursor, cursor);
+}
+
+/**
+ * 预热窗口左端（1h 索引）。
+ *
+ * 以锚点往回取 WARMUP_1H 根历史。
+ * 左端还要对齐到 4h 桶边界 —— 不对齐的话，派生出来的第一根 4h 是个残桶
+ * （缺前面几根 1h），它的 OHLC 与成交量都是错的，会污染所有以它为起点的指标。
+ *
+ * 注意锚点要先换成**时间戳**再对齐：索引和毫秒是两套单位，混用会算飞。
+ */
+function calcWindowStart(bars1h: Bar[], anchor: number, period: ChartPeriod): number {
+  if (anchor < 0 || !bars1h.length) return 0;
+  const anchorBar = bars1h[anchor];
+  if (!anchorBar) return 0;
+  const rawTime = anchorBar.time - WARMUP_1H[period] * HOUR;
+  const alignedTime = Math.floor(rawTime / FOUR_HOURS) * FOUR_HOURS;
+  const idx = bars1h.findIndex((b) => b.time >= alignedTime);
+  return idx < 0 ? 0 : idx;
+}
+
+/** 币安配色：涨 #0ECB81（绿） / 跌 #F6465D（红），网格极淡，数字统一 #EAECEF */
 const BINANCE_STYLES: DeepPartial<Styles> = {
   grid: {
     show: true,
@@ -27,13 +81,13 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
   candle: {
     type: 'candle_solid',
     bar: {
-      upColor: '#F6465D',
-      downColor: '#0ECB81',
+      upColor: '#0ECB81',
+      downColor: '#F6465D',
       noChangeColor: '#848E9C',
-      upBorderColor: '#F6465D',
-      downBorderColor: '#0ECB81',
-      upWickColor: '#F6465D',
-      downWickColor: '#0ECB81',
+      upBorderColor: '#0ECB81',
+      downBorderColor: '#F6465D',
+      upWickColor: '#0ECB81',
+      downWickColor: '#F6465D',
       noChangeBorderColor: '#848E9C',
       noChangeWickColor: '#848E9C',
     },
@@ -43,8 +97,8 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
       low: { color: '#848E9C', textSize: 10 },
       last: {
         show: true,
-        upColor: '#F6465D',
-        downColor: '#0ECB81',
+        upColor: '#0ECB81',
+        downColor: '#F6465D',
         noChangeColor: '#848E9C',
         text: { size: 10, color: '#848E9C' },
       },
@@ -166,6 +220,28 @@ function applyPaneHeights(chart: Chart, container: HTMLElement, paneIds: string[
   });
 }
 
+/**
+ * 把可见根数调成目标值。
+ *
+ * klinecharts 默认 barSpace 较大（约 8~10px），一屏只能显示 ~100 根。
+ * 预热区有 120~240 根历史，不主动缩小 barSpace 的话，起点前的历史会被
+ * 挤出视野 —— 用户就又看不到「练习起点之前长什么样」了。
+ *
+ * 但也不能一味压小：每根 K 线至少 4px 才看得清实体，
+ * 窄屏（手机）必须按容器宽度封顶，否则要么挤成一团要么稀疏得没法读。
+ */
+function applyTargetBarSpace(chart: Chart, target: number) {
+  const size = chart.getSize();
+  if (!size || !size.width) return;
+  // 右侧价格轴占 ~64px，再留一点余量
+  const usable = Math.max(160, size.width - 72);
+  // 每根至少 4px 才看得清 → 窄屏下的可见根数上限
+  const maxByWidth = Math.floor(usable / 4);
+  const realTarget = Math.max(20, Math.min(target, maxByWidth));
+  const space = usable / realTarget;
+  chart.setBarSpace(Math.max(2.5, Math.min(20, space)));
+}
+
 /** 为图表实例装载一组指标；先清掉旧的，再按分组重建 */
 function applyIndicators(
   chart: Chart,
@@ -227,12 +303,73 @@ function syncFeed(chart: Chart, feed: Feed, target: KLineData[]) {
   feed.current = target;
 }
 
-export type ChartPeriod = '4h' | '1h';
+/** 像素坐标 → 命中的 K 线 */
+interface BarHit {
+  timestamp: number;
+  dataIndex: number;
+}
+
+/**
+ * 蜡烛主图的实际像素高度。
+ *
+ * 注意：getPaneOptions('candle_pane').height 返回的是**布局权重**（主图恒为 100），
+ * 不是像素 —— 拿它当像素用会把所有点击都判成「落在副图上」而丢弃。
+ * 像素高度要从 getSize / DOM 上取。
+ */
+function getMainPaneHeight(chart: Chart, fallback: number): number {
+  const size = chart.getSize(CANDLE_PANE);
+  if (size && typeof size.height === 'number' && size.height > 0) return size.height;
+  const dom = chart.getDom(CANDLE_PANE);
+  if (dom && dom.offsetHeight > 0) return dom.offsetHeight;
+  return fallback;
+}
+
+/**
+ * 把屏幕坐标换算成「点到了哪根 K 线」。
+ *
+ * 为什么不用 klinecharts 的 onCandleBarClick：
+ *   1. 它只在命中蜡烛的**矩形本体**时才派发 —— K 线实体只有 4~8px 宽，
+ *      随手点经常落在实体外的空白（两根 K 线之间），完全没反应；
+ *   2. 一次物理点击会被派发两次（影线 + 实体各挂一个 handler），
+ *      「再点一次解除锁定」的 toggle 会被自己抵消 —— 点了等于没点；
+ *   3. onCrosshairChange 的载荷字段名不稳定，悬停跟随经常拿不到时间戳。
+ *
+ * 币安的做法是「点哪根就显示哪根」，不要求精确命中实体。
+ * 这里改用 convertFromPixel 反查 —— 坐标落在哪根就取哪根，容错高。
+ */
+function pickBarAt(
+  chart: Chart,
+  container: HTMLElement,
+  clientX: number,
+  clientY: number,
+): BarHit | null {
+  const rect = container.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  if (x < 0 || x > rect.width || y < 0 || y > rect.height) return null;
+
+  // 只在蜡烛主图范围内响应，副图留给指标自己的 tooltip
+  const mainHeight = getMainPaneHeight(chart, rect.height);
+  if (y > mainHeight) return null;
+
+  try {
+    const raw = chart.convertFromPixel([{ x, y }], { absolute: true, paneId: CANDLE_PANE }) as
+      | { timestamp?: number; dataIndex?: number }
+      | Array<{ timestamp?: number; dataIndex?: number }>;
+    const p = Array.isArray(raw) ? raw[0] : raw;
+    if (!p || typeof p.timestamp !== 'number') return null;
+    return { timestamp: p.timestamp, dataIndex: p.dataIndex ?? -1 };
+  } catch {
+    return null;
+  }
+}
 
 interface Props {
   symbol: string;
   bars1h: Bar[];
   cursor: number;
+  /** 练习起点（1h 索引）—— 用于确定预热窗口左端与起点标记 */
+  startCursor: number;
   openTrade: OpenTrade | null;
   /** 4h 周期启用的指标名列表 */
   indicators4h: string[];
@@ -247,6 +384,7 @@ export function ChartPanel({
   symbol,
   bars1h,
   cursor,
+  startCursor,
   openTrade,
   indicators4h,
   indicators1h,
@@ -261,10 +399,12 @@ export function ChartPanel({
   // 当前常驻副图的 paneId 与权重（供 ResizeObserver 重新分配高度）
   const paneIdsRef = useRef<string[]>([]);
   const weightsRef = useRef<number[]>([]);
-  // 已装载的周期/标的，用于判断是否需要重新 init
+  // 已装载的周期/标的/起点，用于判断是否需要重新 init
   const loadedKeyRef = useRef<string>('');
-  // 上一次处理过的点击（用于去重同一次物理点击的重复派发）
-  const lastClickRef = useRef<{ ts: number; at: number } | null>(null);
+  // 按下时的坐标，用于区分「点击」与「拖动图表」
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+  // 锁定的镜像（事件回调里要读最新值，不能只依赖 state 闭包）
+  const pinnedRef = useRef<number | null>(null);
 
   /** 十字光标所在那根 K 线（跟随） */
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -272,12 +412,32 @@ export function ChartPanel({
   const [pinnedTime, setPinnedTime] = useState<number | null>(null);
   /** 锁定标记在画布上的 x 像素位置 */
   const [pinX, setPinX] = useState<number | null>(null);
+  /** 练习起点标记的 x 像素位置 */
+  const [startX, setStartX] = useState<number | null>(null);
+
+  pinnedRef.current = pinnedTime;
 
   // 游标只用于「初始化时取已揭示切片」，不作为重建图表的依赖
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
+  const startCursorRef = useRef(startCursor);
+  startCursorRef.current = startCursor;
+  // 周期镜像：给只跑一次的 effect（图表实例初始化）读取最新周期
+  const periodRef = useRef(period);
+  periodRef.current = period;
 
-  const revealed1h = useMemo(() => (cursor < 0 ? [] : bars1h.slice(0, cursor + 1)), [bars1h, cursor]);
+  /**
+   * 预热窗口左端（1h 索引）—— 见 calcWindowStart 的说明。
+   */
+  const windowStart = useMemo(
+    () => calcWindowStart(bars1h, resolveAnchor(startCursor, cursor), period),
+    [bars1h, cursor, startCursor, period],
+  );
+
+  const revealed1h = useMemo(
+    () => (cursor < 0 ? [] : bars1h.slice(windowStart, cursor + 1)),
+    [bars1h, cursor, windowStart],
+  );
   const revealed4h = useMemo(() => derive4h(revealed1h), [revealed1h]);
 
   const activeBars = period === '4h' ? revealed4h : revealed1h;
@@ -288,7 +448,12 @@ export function ChartPanel({
     setHoverTime(null);
   }, [period, symbol]);
 
-  // ---------- 初始化图表实例 ----------
+  // ---------- 初始化图表实例 + 绑定交互 ----------
+  // 注意：图表实例**只创建一次**。
+  // 曾经写成依赖 [period]，切周期时 dispose + init(el) 重建 —— init 在同一个
+  // el 上重建会抛错，导致后续所有 effect（指标装载 / 数据重建）都不执行，
+  // 表现为「切到 1h 后图表空白、指标消失」。
+  // 现在：实例固定，切换周期只重建数据与指标（见下面的两个 effect）。
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -298,53 +463,67 @@ export function ChartPanel({
     chartRef.current = chart;
     chart.setOffsetRightDistance(64);
 
+    // ---------- 鼠标 / 触摸交互：悬停跟随 + 点击锁定 ----------
+    const onPointerMove = (ev: PointerEvent) => {
+      if (pinnedRef.current !== null) return; // 已锁定时不跟随
+      const hit = pickBarAt(chart, el, ev.clientX, ev.clientY);
+      setHoverTime(hit ? hit.timestamp : null);
+    };
+
+    const onPointerLeave = () => {
+      if (pinnedRef.current === null) setHoverTime(null);
+    };
+
+    const onPointerDown = (ev: PointerEvent) => {
+      pointerDownRef.current = { x: ev.clientX, y: ev.clientY };
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      const down = pointerDownRef.current;
+      pointerDownRef.current = null;
+      if (!down) return;
+      // 位移超过 5px 视为拖动图表，不算点击
+      if (Math.abs(ev.clientX - down.x) > 5 || Math.abs(ev.clientY - down.y) > 5) return;
+
+      const hit = pickBarAt(chart, el, ev.clientX, ev.clientY);
+      if (!hit) {
+        // 点在空白处 → 解除锁定（币安行为）
+        setPinnedTime(null);
+        return;
+      }
+      // 幂等锁定：重复点同一根也不会互相抵消
+      setPinnedTime(hit.timestamp);
+    };
+
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') setPinnedTime(null);
+    };
+
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerleave', onPointerLeave);
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('keydown', onKey);
+
     const ro = new ResizeObserver(() => {
       chart.resize();
       applyPaneHeights(chart, containerRef.current!, paneIdsRef.current, weightsRef.current);
+      applyTargetBarSpace(chart, TARGET_VISIBLE[periodRef.current]);
     });
     ro.observe(el);
 
     return () => {
       ro.disconnect();
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerleave', onPointerLeave);
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('keydown', onKey);
       dispose(chart);
       chartRef.current = null;
     };
   }, []);
 
-  // ---------- 点击 K 线 / 十字光标跟随 ----------
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    // onCandleBarClick 的载荷：{ dataIndex, x, data: { current, prev } }
-    const onBarClick = (data?: unknown) => {
-      const d = data as { data?: { current?: KLineData } } | undefined;
-      const k = d?.data?.current;
-      if (!k?.timestamp) return;
-      // klinecharts 的 candle_solid 会画「影线 + 实体」两个 rect，
-      // 两个 rect 都挂了同一个 click handler —— 一次物理点击会被派发两次。
-      // 不去重的话，「再点一次解除锁定」的 toggle 会被自己抵消（点了等于没点）。
-      const now = performance.now();
-      const last = lastClickRef.current;
-      if (last && last.ts === k.timestamp && now - last.at < 60) return;
-      lastClickRef.current = { ts: k.timestamp, at: now };
-      // 再点同一根 = 解除锁定
-      setPinnedTime((prev) => (prev === k.timestamp ? null : k.timestamp));
-    };
-
-    // onCrosshairChange 的载荷：Crosshair（含 kLineData）
-    const onCrosshair = (data?: unknown) => {
-      const c = data as { kLineData?: KLineData } | undefined;
-      setHoverTime(c?.kLineData?.timestamp ?? null);
-    };
-
-    chart.subscribeAction('onCandleBarClick', onBarClick);
-    chart.subscribeAction('onCrosshairChange', onCrosshair);
-    return () => {
-      chart.unsubscribeAction('onCandleBarClick', onBarClick);
-      chart.unsubscribeAction('onCrosshairChange', onCrosshair);
-    };
-  }, []);
 
   // ---------- 锁定标记的像素位置（随缩放/滚动刷新） ----------
   const refreshPinX = useCallback(() => {
@@ -354,7 +533,7 @@ export function ChartPanel({
       return;
     }
     try {
-      const px = chart.convertToPixel({ timestamp: pinnedTime }) as Partial<Coordinate>;
+      const px = chart.convertToPixel({ timestamp: pinnedTime }, { absolute: true }) as Partial<Coordinate>;
       setPinX(typeof px?.x === 'number' && Number.isFinite(px.x) ? px.x : null);
     } catch {
       setPinX(null);
@@ -372,6 +551,31 @@ export function ChartPanel({
     chart.subscribeAction('onVisibleRangeChange', onRangeChange);
     return () => chart.unsubscribeAction('onVisibleRangeChange', onRangeChange);
   }, [refreshPinX]);
+
+  // ---------- 练习起点标记 ----------
+  const startTimestamp = useMemo(() => {
+    if (startCursor < 0) return null;
+    const bar = bars1h[startCursor];
+    if (!bar) return null;
+    return period === '4h' ? Math.floor(bar.time / FOUR_HOURS) * FOUR_HOURS : bar.time;
+  }, [bars1h, startCursor, period]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || startTimestamp === null) {
+      setStartX(null);
+      return;
+    }
+    try {
+      const px = chart.convertToPixel({ timestamp: startTimestamp }, { absolute: true }) as Partial<Coordinate>;
+      const x = typeof px?.x === 'number' && Number.isFinite(px.x) ? px.x : null;
+      // 起点在视口外时不要画（避免一条横跨全图的假线）
+      const size = chart.getSize();
+      setStartX(x !== null && size && x >= 0 && x <= size.width ? x : null);
+    } catch {
+      setStartX(null);
+    }
+  }, [startTimestamp, activeBars, cursor]);
 
   // ---------- e2e 测试钩子 ----------
   // 验证脚本需要「精确点到某根 K 线的实体上」才能触发 onCandleBarClick，
@@ -403,12 +607,12 @@ export function ChartPanel({
     applyPaneHeights(chart, containerRef.current!, r.paneIds, r.weights);
   }, [indicators4h, indicators1h, period]);
 
-  // ---------- 换标的 / 换周期：重建 feed 并 init ----------
+  // ---------- 换标的 / 换周期 / 换起点：重建 feed 并 init ----------
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || bars1h.length === 0) return;
 
-    const key = `${symbol}|${period}`;
+    const key = `${symbol}|${period}|${startCursorRef.current}`;
     if (loadedKeyRef.current === key) return;
 
     const last = bars1h[bars1h.length - 1];
@@ -417,25 +621,32 @@ export function ChartPanel({
     const feed = createFeed();
     feedRef.current = feed;
 
-    const revealed = cursorRef.current >= 0 ? bars1h.slice(0, cursorRef.current + 1) : [];
+    const c = cursorRef.current;
+    const anchor = resolveAnchor(startCursorRef.current, c);
+    const winStart = c >= 0 ? calcWindowStart(bars1h, anchor, period) : 0;
+    const revealed = c >= 0 ? bars1h.slice(winStart, c + 1) : [];
     feed.current = (period === '4h' ? derive4h(revealed) : revealed).map(toKLineData);
 
     chart.setSymbol({ ticker: `${symbol}-${period}`, pricePrecision: precision, volumePrecision: 2 });
     chart.setPeriod({ type: 'hour', span: period === '4h' ? 4 : 1 });
     chart.setDataLoader(feed.loader);
     chart.resetData();
+    applyTargetBarSpace(chart, TARGET_VISIBLE[period]);
+    applyPaneHeights(chart, containerRef.current!, paneIdsRef.current, weightsRef.current);
 
     loadedKeyRef.current = key;
-  }, [symbol, period, bars1h]);
+  }, [symbol, period, bars1h, startCursor]);
 
   // ---------- 游标推进：增量同步 ----------
   useEffect(() => {
     const chart = chartRef.current;
     const feed = feedRef.current;
     if (!chart || !feed) return;
-    if (loadedKeyRef.current !== `${symbol}|${period}`) return;
+    if (loadedKeyRef.current !== `${symbol}|${period}|${startCursorRef.current}`) return;
 
     syncFeed(chart, feed, activeBars.map(toKLineData));
+    // 回退导致 resetData 时，barSpace 会被重置 —— 补一次
+    applyTargetBarSpace(chart, TARGET_VISIBLE[period]);
   }, [activeBars, symbol, period]);
 
   // ---------- 持仓：画入场/止损/目标线（只在 1h 图上） ----------
@@ -472,9 +683,14 @@ export function ChartPanel({
   // ---------- 详情：锁定 > 悬停 > 最新一根 ----------
   const detail = useMemo(() => {
     if (!activeBars.length) return null;
-    const ts = pinnedTime ?? hoverTime ?? activeBars[activeBars.length - 1].time;
-    const idx = activeBars.findIndex((b) => b.time === ts);
-    if (idx < 0) return null;
+    // 悬停到无效位置（右侧价格轴、窗口外）时回退到最新一根，
+    // 而不是让整条详情条闪成「暂无数据」
+    let idx = activeBars.length - 1;
+    const ts = pinnedTime ?? hoverTime;
+    if (ts !== null) {
+      const i = activeBars.findIndex((b) => b.time === ts);
+      if (i >= 0) idx = i;
+    }
     const bar = activeBars[idx];
     const prevClose = idx > 0 ? activeBars[idx - 1].close : bar.open;
     const chg = bar.close - prevClose;
@@ -544,11 +760,12 @@ export function ChartPanel({
 
       <div className="chart-canvas-wrap">
         <div ref={containerRef} className="chart-canvas" />
+        {startX !== null && <div className="start-marker" style={{ left: `${startX}px` }} />}
         {locked && pinX !== null && <div className="pin-marker" style={{ left: `${pinX}px` }} />}
       </div>
 
       <div className="chart-foot">
-        <span className="muted">点击 K 线锁定查看该根详情，再次点击解除</span>
+        <span className="muted">点击任意 K 线锁定查看详情，再次点击空白处或按 ESC 解除</span>
         {locked && (
           <button className="btn tiny ghost" onClick={() => setPinnedTime(null)}>
             解除锁定

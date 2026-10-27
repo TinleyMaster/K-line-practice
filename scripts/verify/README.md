@@ -27,12 +27,13 @@ npm start
 | `viewports.js` | **多视口 × 多市场**布局回归：横向溢出 / 触控目标 / 输入框字号 / 图表渲染 / JS 错误 | `shots/*.png` + `shots/report.json` | 15 组全绿 |
 | `v3-features.js` | **v3 增量功能**：开仓面板折叠 / 自定义练习起点 / 指标自选 / 持久化 | `shots/v3-*.png` | 29/29 通过 |
 | `v4-features.js` | **v4 增量功能**：4h/1h 单图切换 / K 线后退 / 点击 K 线详情 / 币安配色 | `shots/v4-*.png` | 34/34 通过 |
+| `v5-features.js` | **v5 增量功能**：预热窗口（起点前历史可见）/ 指标有值 / 绿涨红跌 / 播放配置折叠 / 点击命中重做 | `shots/v5-*.png` | 30/30 通过 |
 | `popup-reachability.js` | **弹窗可达性**：5 视口 × 2 弹窗，验证底部「完成」按钮真的点得到 | stdout | 15/15 通过 |
 
 ## 跑法
 
 ```bash
-npm run verify              # 一键跑全套（api + flow + viewport）
+npm run verify              # 一键跑全套（api + flow + viewport + v3 + v4 + v5 + popup）
 
 node scripts/verify/e2e-markets.js          # API 闭环
 node scripts/verify/flow2.js                 # 浏览器交易闭环
@@ -40,6 +41,7 @@ node scripts/verify/viewports.js             # 多视口回归
 node scripts/verify/v3-features.js           # v3 增量功能
 node scripts/verify/popup-reachability.js    # 弹窗可达性
 node scripts/verify/v4-features.js           # v4 增量功能
+node scripts/verify/v5-features.js           # v5 增量功能
 ```
 
 ## 环境变量
@@ -50,7 +52,7 @@ node scripts/verify/v4-features.js           # v4 增量功能
 | `OUT_DIR` | `./shots` | 截图与报告输出目录 |
 | `CHROME_PATH` | Playwright chromium | Chromium 可执行文件路径 |
 
-## 四个坑（别重复踩）
+## 七个坑（别重复踩）
 
 1. **不要用 `| head` / `| tail` 截断输出**：管道关闭会触发 SIGPIPE 把 node 进程杀掉，
    报告文件直接丢失（踩过两次）。要精简就读 `shots/report.json`，或把输出重定向到文件。
@@ -66,4 +68,14 @@ node scripts/verify/v4-features.js           # v4 增量功能
    把「时间戳 + 价格」换成像素，再叠加画布的 `getBoundingClientRect()` 偏移，
    就能做真实像素级点击。注意 `value` 要取**实体内部**的价格（如 (开+收)/2），
    取高低点会点到影线外。
+5. **反向也有 API：`chart.convertFromPixel([{x, y}], { absolute: true })`**
+   直接返回 `{ dataIndex, timestamp, value }` —— 不用换算就知道「这个像素属于哪根 K 线」。
+   坐标要用**相对容器**的（`clientX - rect.left`），`absolute: true` 表示已经是容器坐标。
+   v5 的点击命中就是靠它重写的，比在窄蜡烛实体上抠像素靠谱得多。
+6. **`getPaneOptions('candle_pane').height` 是布局权重（恒为 100），不是像素**。
+   拿它当像素用，所有点击都会被判成「落在副图上」而丢弃。
+   主图实际像素高度用 `chart.getSize('candle_pane')?.height` 或 DOM 的 `offsetHeight`。
+7. **断言必须锚定在真实变化的量上**。v4 的点击测试就是反面教材：
+   悬停不跟随 → 横向扫 7 个位置扫到的都是最后一根 → 「点的」和「断言的」恰好同一根 →
+   测试通过但功能早就坏了。**写断言前先确认那个量真的会变**（如「不同 x 得到不同时间戳」）。
 

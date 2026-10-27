@@ -298,13 +298,18 @@ try {
   const missing = detailFields.filter((f) => !clicked?.byLabel?.[f]);
   log('详情含完整字段（开高低收/涨跌/振幅/量/额）', missing.length === 0, `缺=${missing.join(',') || '无'}`);
 
-  // 再次点击 → 解除锁定
+  // 解除锁定：v5 起改为「点空白 / ESC」，不再是「再点同一根」
+  // （klinecharts 一次物理点击会派发两次，toggle 语义会被自己抵消）
   if (pt) {
-    await page.mouse.click(pt.x, pt.y);
+    const box = await page.evaluate(() => {
+      const r = document.querySelector('.chart-canvas').getBoundingClientRect();
+      return { l: r.left, t: r.top, w: r.width, h: r.height };
+    });
+    await page.mouse.click(box.l + box.w * 0.5, box.t + box.h * 0.88);
     await sleep(600);
   }
   const unlocked = await readOhlc(page);
-  log('再次点击解除锁定', !!unlocked && unlocked.locked === false, JSON.stringify({ locked: unlocked?.locked }));
+  log('点非 K 线区域解除锁定', !!unlocked && unlocked.locked === false, JSON.stringify({ locked: unlocked?.locked }));
 
   await page.screenshot({ path: path.join(OUT, 'v4-click-detail.png') });
 
@@ -330,8 +335,8 @@ try {
       bodyBg: getComputedStyle(document.body).backgroundColor,
     };
   });
-  log('涨=红 #f6465d', palette.up.toLowerCase() === '#f6465d', palette.up);
-  log('跌=绿 #0ecb81', palette.down.toLowerCase() === '#0ecb81', palette.down);
+  log('涨=绿 #0ecb81', palette.up.toLowerCase() === '#0ecb81', palette.up);
+  log('跌=红 #f6465d', palette.down.toLowerCase() === '#f6465d', palette.down);
   log('强调色=币安黄 #fcd535', palette.accent.toLowerCase() === '#fcd535', palette.accent);
   log('背景=深色 #0b0e11', palette.bodyBg === 'rgb(11, 14, 17)', palette.bodyBg);
   log('主按钮=黄底黑字', palette.primaryBg === 'rgb(252, 213, 53)' && palette.primaryColor === 'rgb(24, 26, 32)', `${palette.primaryBg} / ${palette.primaryColor}`);

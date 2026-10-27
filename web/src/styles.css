@@ -4,7 +4,7 @@
    色板取自币安现货/合约页：
      背景 #0B0E11   面板 #161A1E   次级面板 #1E2329   分隔 #2B3139
      文字 #EAECEF   次级 #848E9C   弱化 #5E6673
-     涨 #F6465D（红）  跌 #0ECB81（绿）  强调 #FCD535（币安黄）
+     涨 #0ECB81（绿）  跌 #F6465D（红）  强调 #FCD535（币安黄）
    设计原则：细边框、几乎不用圆角、小字号高信息密度、颜色只用来表达涨跌。
    ================================================================== */
 
@@ -18,8 +18,8 @@
   --text: #eaecef;
   --text-dim: #848e9c;
   --text-muted: #5e6673;
-  --up: #f6465d;
-  --down: #0ecb81;
+  --up: #0ecb81;
+  --down: #f6465d;
   --accent: #fcd535;
   --accent-ink: #181a20;
   --warn: #f0b90b;
@@ -422,6 +422,30 @@ body {
   z-index: 5;
 }
 
+/* 练习起点标记（预热区与练习区的分界） */
+.start-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.start-marker::after {
+  content: '练习起点';
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  background: rgba(11, 14, 17, 0.72);
+  padding: 0 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
 .chart-foot {
   display: flex;
   align-items: center;
@@ -456,6 +480,32 @@ body {
   gap: 4px;
   margin-left: 4px;
   flex-wrap: wrap;
+}
+
+/* 前进 / 后退 —— 加大点击目标，触屏单手更好按 */
+.replay-btns .btn-step {
+  min-width: 78px;
+  height: 38px;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.replay-btns .btn-play {
+  min-width: 92px;
+  height: 38px;
+  padding: 0 14px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.replay-reset {
+  flex: none;
+}
+
+/* 窄屏用图标态：宽屏显示全文字，窄屏只留图标，5 个按钮才能挤进一行 */
+.lbl-mini {
+  display: none;
 }
 
 .replay-progress {
@@ -1484,6 +1534,29 @@ textarea {
 @media (max-width: 767px) {
   :root {
     --chart-height: clamp(240px, 44dvh, 420px);
+  }
+
+  /* 回放条：5 个按钮压成一行（窄屏只显示图标，触控高度不变） */
+  .replay-btns {
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .replay-btns .btn-step,
+  .replay-btns .btn-play {
+    min-width: 0;
+    flex: 1;
+    padding: 0 4px;
+  }
+
+  .replay-btns .lbl-full {
+    display: none;
+  }
+
+  .replay-btns .lbl-mini {
+    display: inline;
+    font-size: 17px;
+    line-height: 1;
   }
 
   body {
