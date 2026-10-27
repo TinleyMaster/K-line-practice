@@ -151,12 +151,13 @@
 
 | 市场 | market | 数据源 | 回填方式 | 实测覆盖 |
 |---|---|---|---|---|
-| 币安 U 本位合约 | `perp` | `biz.asset_klines`（原库，只读物化） | `npm run db:materialize`（1h）+ `npm run db:mat15m`（15m） | 1h：60 标的 / 149.2 万根；15m：63 标的 / 50.7 万根 |
-| 币安现货 | `spot` | 币安现货 REST `/api/v3/klines` | `npm run deep:fill -- --market spot --interval 15m\|1h` | 1h：12 标的 / 36.8 万根；15m：12 标的 / 31.3 万根 |
+| 币安 U 本位合约 | `perp` | `biz.asset_klines`（原库，只读物化） | `npm run db:materialize`（1h）+ `npm run db:mat15m`（15m） | 1h：60 标的 / 154.7 万根；15m：63 标的 / 72.6 万根 |
+| 币安现货 | `spot` | 币安现货 REST `/api/v3/klines` | `npm run deep:fill -- --market spot --interval 15m\|1h` | 1h：12 标的 / 46.0 万根；15m：12 标的 / 68.2 万根 |
 | 链上美股 | `stock` | Binance Alpha 清单 → GeckoTerminal 链上 OHLCV | `node src/scripts/backfill.js stock --symbols ...` | 8 标的 / 多池合并（**只有 1h**，链上源无 15m 粒度） |
 
-> **BTC/ETH 的 15m 已深回填到 2022-12-01**（perp + spot 各 136,923 根 / 1426 天），
-> 与 1h 起点严格对齐；其余标的 15m 覆盖最近 41 天（源表 / API 物化）。
+> **BTC/ETH 的 15m 已深回填到币安的物理下限**：现货 2017-08-17（各 321,812 根）、
+> 合约 2019-09-08 / 2019-11-27（250,138 / 242,494 根），与 1h 起点严格对齐；
+> 其余标的 15m 覆盖最近 41 天（源表 / API 物化）。
 > 补数据的**两条路径成本差 400 倍**：源表物化是 `INSERT … SELECT`，两端同机走回环 GB/s，
 > 84 万行 61 秒；币安 API 回填跨机写 515 行/秒，84 万行要 27 分钟。
 > **凡源表能给的，一律走 `npm run db:mat15m`。**
@@ -232,9 +233,12 @@ node src/scripts/backfill.js spot-all --limit 12 --days 365
 node src/scripts/backfill.js stock --symbols NVDAON,SPYON,QQQON,CRCLON,MUON --days 60
 
 # 6. 深回填 15m / 1h（币安 API 直连，跨机写 515 行/秒，耗时按量级估）
-#    BTC/ETH 的 15m 拉到 2022-12-01（各约 13.7 万根，~8 分钟/标的）
-npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market perp --interval 15m --since 2022-12-01
-npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market spot --interval 15m --since 2022-12-01
+#    BTC/ETH 的 15m 拉到**币安的物理下限**（现货 2017-08-17 / 合约 2019-09-08）：
+#    各约 25~32 万根，~8~9 分钟/标的
+npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market perp --interval 15m --since 2019-09-08
+npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market spot --interval 15m --since 2017-08-17
+#    已有数据的区间不必重拉：加 --until 只补缺失的那一段（省 40%+ 请求与写入）
+# npm run deep:fill -- --symbols BTCUSDT --market spot --interval 15m --since 2017-08-17 --until 2022-12-01
 
 # 7. 构建前端 + 启动（单进程同时提供 API 与静态页面）
 cd .. && npm run build && npm start

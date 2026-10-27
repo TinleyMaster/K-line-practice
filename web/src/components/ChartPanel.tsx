@@ -24,32 +24,32 @@ const TRADE_GROUP = 'trade-lines';
  * 如果只喂「起点之后」的数据，起点那根的指标全是空的 —— 用户看到的第一屏
  * 没有任何依据，「4h 看趋势」这条规则根本落不了地。
  *
- *   - 4h：480 根 1h = 120 根 4h（够 MA60，也够看趋势结构）
- *   - 1h：240 根 1h（够 MA60）
+ *   - 1h：480 根 1h（= 480 小时）
+ *   - 4h：480 根 1h = 120 根 4h（= 480 小时，够 MA60，也给足趋势结构）
  *
- * 15m 单独算（见 WARMUP_15M）：它是独立序列，根数换算不同。
+ * ⚠️ v6.3 踩过的坑：**别把「预热窗口」和「可见跨度」当成一回事**。
+ *   对齐要求的是**可见根数按周期成比例**（VISIBLE_BARS），预热窗口是另一件事 ——
+ *   它决定「指标能算出多少值」「起点前的历史在不在视野内」。
+ *   早先把 4h 的预热砍到 240 根（=60 根 4h）以求"统一"，结果 4h 档 MA60 卡在临界、
+ *   起点前的历史掉出视野 —— 对齐没换来，功能先丢了。
+ *   现在的做法：**预热窗口 = 可见跨度 = 480 小时**，各档都能覆盖自己的全部预热，
+ *   1h↔4h 又能像素级对齐（barSpace 4:1）。
  */
-const WARMUP_1H: Record<'4h' | '1h', number> = { '4h': 480, '1h': 240 };
+const WARMUP_1H: Record<'4h' | '1h', number> = { '4h': 480, '1h': 480 };
 
 /**
  * 15m 的预热根数。
  *
- * 960 根 15m = 240 小时 = 10 天 —— **与 1h 口径（240 根 1h = 240 小时）严格对齐**。
+ * 1920 根 15m = 480 小时 —— 与 1h / 4h 口径（480 小时）严格一致。
  *
  * 为什么必须对齐：
  *   15m 是 1h 的「同一时间轴高分辨率视图」。如果 15m 的历史跨度比 1h 短，
- *   用户在 1h ↔ 15m 之间切换时，视野长度会变 —— 看起来像「图表跳了一下」，
- *   很难受。跨度一致，切换才是纯粹的「同一段历史的两种粒度」。
+ *   用户在 1h ↔ 15m 之间切换时，视野长度会变 —— 看起来像「图表跳了一下」。
+ *   跨度一致，切换才是纯粹的「同一段历史的两种粒度」。
  *
- * （v6 初版这里写的是 480 根 = 120 小时，比 1h 短一半 —— 已修正。）
+ * （v6 初版 480 根 = 120 小时，比 1h 短一半 —— v6 修正过一次，v6.3 随统一跨度再调到 1920。）
  */
-const WARMUP_15M = 960;
-
-/**
- * 目标可见根数 —— 决定 barSpace，让「预热区 + 当前根」尽量铺满一屏。
- * 数值偏大 → K 线变密；偏小 → 起点前的历史被挤出视野。
- */
-const TARGET_VISIBLE: Record<ChartPeriod, number> = { '4h': 120, '1h': 200, '15m': 260 };
+const WARMUP_15M = 1920;
 
 /**
  * 预热窗口的锚点索引。
@@ -87,16 +87,20 @@ function calcWindowStart(bars1h: Bar[], anchor: number, period: '4h' | '1h'): nu
  * 15m 的窗口（独立序列，按时间戳切）。
  *
  * 15m 是**独立序列**（不是从 1h 派生的），所以窗口按时间戳切：
- *   - **左端**：锚点往前 WARMUP_15M 根 15m（= 240 小时，与 1h 口径一致）
+ *   - **左端**：锚点往前 WARMUP_15M 根 15m（= 480 小时，与 1h / 4h 口径一致）
  *   - **右端**：当前 1h 游标所在小时的**小时末**
  *
- * ⚠️ 右端必须跟着 **cursorIdx** 走，不能跟着 anchor（= min(startCursor, cursor)）走。
- *   踩过的坑：初版右端也用 anchor，而 anchor = min(练习起点, 游标) = 起点
- *   —— 于是回放往前推进时，15m 图的右端**钉死在练习起点那一小时不动**，
- *   1h 图在走、15m 图不走，看起来像「15m 数据没刷新」。
+ * ⚠️ 右端口径是「对齐」的关键（v6.3 修）：
+ *   1h 档右端 = 包含当前时刻的那根 1h（bars1h[cursor]，引擎已揭示其 OHLC）；
+ *   15m 档右端 = 包含当前时刻的那根 15m（开盘 ≤ cursorMs 的最后一根）。
+ *   两者**同构** —— 同一时刻、同一根的起点 ⇒ 落在同一个横坐标上。
  *
- * 语义边界（为什么右端可以落在「当前这一小时」内部）：
- *   15m 图 = 1h 引擎**已经揭示**的那一小时 + 这一小时内部的 15m 路径。
+ *   旧实现右端取 `cursorBar.time + 1h`（= 当前小时的**末尾**）：
+ *   那一根 15m 的收盘发生在当前时刻**之后** ⇒ 提前泄露了最多 45 分钟的未来，
+ *   而且与 1h 档的右端差了一根 15m 的宽度 ⇒ 切周期时右边对不齐。
+ *
+ * 语义边界（为什么右端可以落在「当前这一根」内部）：
+ *   15m 图 = 引擎**已经揭示**的那一小时 + 这一小时内部的 15m 路径。
  *   当前这根 1h 已经在引擎里了（bars1h[cursor]），引擎知道它的 OHLC；
  *   15m 视图额外展示这一小时**内部的走势** —— 这正是「精入场」要看的东西。
  *   关键红线：绝不显示 cursor **之后**的任何数据（未来）。
@@ -106,18 +110,20 @@ function calcWindow15m(
   bars1h: Bar[],
   anchor: number,
   cursorIdx: number,
+  cursorMs: number,
 ): { from: number; to: number } {
   if (!bars15m.length || anchor < 0 || cursorIdx < 0) return { from: 0, to: -1 };
   const anchorBar = bars1h[anchor];
-  const cursorBar = bars1h[cursorIdx];
-  if (!anchorBar || !cursorBar) return { from: 0, to: -1 };
+  if (!anchorBar) return { from: 0, to: -1 };
 
-  // 当前 1h 根覆盖 [cursorBar.time, cursorBar.time + 1h)
-  const hourEnd = cursorBar.time + HOUR;
-  // 15m 序列里 ≤ hourEnd 的最后一根
+  // 当前时刻：优先用 cursorMs（可精确到 15m 内部），否则退回 cursor 那根 1h 的开盘
+  const now = cursorMs >= 0 ? cursorMs : (bars1h[cursorIdx]?.time ?? -1);
+  if (now < 0) return { from: 0, to: -1 };
+
+  // 15m 序列里「开盘时间 ≤ 当前时刻」的最后一根 —— 与 1h 档右端同构
   let to = -1;
   for (let i = 0; i < bars15m.length; i++) {
-    if (bars15m[i].time < hourEnd) to = i;
+    if (bars15m[i].time <= now) to = i;
     else break;
   }
   if (to < 0) return { from: 0, to: -1 };
@@ -263,45 +269,138 @@ function toKLineData(bar: Bar): KLineData {
  * 主图（candle_pane）吸收剩余空间。在矮屏（手机横放，图表容器仅 200px）
  * 副图会吃掉一半，蜡烛主图被压成一条缝，完全没法看。
  *
- * 这里按容器高度给每个副图按权重分配，夹在 [48, 100]，
- * 容器越大副图绝对值封顶在 100px（保持桌面观感），越小则按比例收缩。
- * 主图至少保留 40% 高度。
+ * v6.3：副图上限从 2 个提到 4 个 ⇒ 高度分配必须重新算，
+ * 否则 4 个副图会把主图挤没（旧算法给每个副图 48~100px，
+ * 4 个就是 192~400px，而容器才 430px ⇒ 主图只剩几十像素）。
+ *
+ * 现在的规则：
+ *   - 副图**总高** ≤ 容器的 45%（主图至少留一半以上，蜡烛是主角）
+ *   - 单个副图 ≤ 90px（再高就没必要，指标图不需要那么大）
+ *   - 单个副图 ≥ 44px（低于这个高度 Y 轴刻度会挤成一团）
  */
 function applyPaneHeights(chart: Chart, container: HTMLElement, paneIds: string[], weights: number[]) {
   const h = container.clientHeight;
   if (!h || !paneIds.length) return;
 
-  // 主图至少留 40%，剩余按权重分给副图
-  const available = Math.max(0, h * 0.6);
+  const totalCap = Math.min(h * 0.45, paneIds.length * 90);
   const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
 
   paneIds.forEach((paneId, i) => {
-    const share = (available * (weights[i] ?? 0.3)) / totalWeight;
-    const paneH = Math.round(Math.min(100, Math.max(48, share)));
+    const share = (totalCap * (weights[i] ?? 0.28)) / totalWeight;
+    const paneH = Math.round(Math.min(90, Math.max(44, share)));
     chart.setPaneOptions({ id: paneId, height: paneH, minHeight: 40 });
   });
 }
 
 /**
- * 把可见根数调成目标值。
+ * 右侧留白的基准像素（不含 barSpace 补偿）。
  *
- * klinecharts 默认 barSpace 较大（约 8~10px），一屏只能显示 ~100 根。
- * 预热区有 120~240 根历史，不主动缩小 barSpace 的话，起点前的历史会被
- * 挤出视野 —— 用户就又看不到「练习起点之前长什么样」了。
+ * ⚠️ 这是「切周期 K 线对齐」的关键，也是踩得最深的一个坑。
  *
- * 但也不能一味压小：每根 K 线至少 4px 才看得清实体，
- * 窄屏（手机）必须按容器宽度封顶，否则要么挤成一团要么稀疏得没法读。
+ * klinecharts 的最后一根 K 线中心坐标：
+ *     xLast = 图表宽度 − offsetRightDistance − barSpace/2 − C
+ * （C 是 klinecharts 内部的常量偏移，实测 ≈ 64px）
+ *
+ * 而 `setPeriod({ span })` 会**按周期重算** offsetRightDistance：
+ *   实测 1h → 26.19px、4h → 256px、15m → 15.67px
+ * ⇒ 切周期后同一时刻的 x 会整体平移（实测 1h↔4h 差 **236px**），
+ *   肉眼看就是「切过去 K 线位置全变了」。
+ *
+ * 修法：offsetRightDistance 必须**随 barSpace 反向补偿**。
+ *   要 xLast 在各周期下相同 ⇒ off4 − off1 = (bs4 − bs1)/2
+ *   ⇒ off = BASE − barSpace/2
+ *
+ * 这样三档的「最后一根中心」落在同一像素（实测误差 < 1px），
+ * 中间任意时刻也因为 barSpace 成 4:1 比例而严格对齐。
  */
-function applyTargetBarSpace(chart: Chart, target: number) {
+const OFFSET_RIGHT_BASE = 64;
+
+/**
+ * 设置右侧留白（并立即重算可见区）。
+ *
+ * klinecharts 的 `setOffsetRightDistance` **运行时支持第二个参数 isUpdate**
+ * （true = 立刻 `_adjustVisibleRange` + layout），但类型定义只暴露了一个参数。
+ * 这里用类型断言调用 —— 运行时行为已对照 klinecharts v10 源码核对：
+ *   setOffsetRightDistance = (distance, isUpdate) => {
+ *     this._offsetRightDistance = distance
+ *     this._lastBarRightSideDiffBarCount = distance / this._barSpace
+ *     if (isUpdate) { this._adjustVisibleRange(); this._chart.layout(...) }
+ *   }
+ *
+ * 不传 isUpdate 的话右偏移要等下一次 layout 才生效 —— 切周期时会看到一帧错位。
+ */
+function setOffsetRight(chart: Chart, px: number) {
+  (
+    chart as unknown as { setOffsetRightDistance: (d: number, u?: boolean) => void }
+  ).setOffsetRightDistance(px, true);
+}
+
+/**
+ * 各档的「可见根数」上限 —— 直接由**预热根数**决定（= 覆盖全部预热历史）。
+ *
+ * 1h 480 根 / 4h 120 根 天然是 **4:1** ⇒ barSpace 也天然 4:1 ⇒
+ * 同一时刻在 1h 与 4h 下落在同一个横坐标上（像素级对齐）。
+ *
+ * ⚠️ 这里的取舍（v6.3 定稿）：
+ *   1h 档 480 根 ⇒ 宽屏下每根约 2px（币安级密度）。
+ *   代价是 1h 的 K 线实体很窄；但换来的是 4h 档能**完整显示 120 根预热**，
+ *   「起点前的历史在视野内」这个 v5 核心功能不退化。
+ *   反过来（1h 240 根 @4px、4h 60 根 @16px）虽然 1h 更清晰，
+ *   但 4h 档有一半预热掉出视野 —— 对齐没换来，功能先丢了。
+ */
+const VISIBLE_BARS: Record<ChartPeriod, number> = { '1h': 480, '4h': 120, '15m': 1920 };
+
+/**
+ * 每根 K 线的最小像素宽度。
+ *
+ * 1h / 4h 用 2px：这两档看的是**形态与位置关系**，币安上 1h 图一屏几百根、
+ * 每根也就 2px 左右，是正常密度。
+ *
+ * 15m 用 4px：15m 是「精入场」视图，用户要逐根看形态，实体必须看得清。
+ * （15m 本来就是对齐的例外档，跨度独立于 1h/4h。）
+ */
+const MIN_BAR_PX = 2;
+const MIN_BAR_PX_FINE = 4;
+
+/**
+ * 把可见根数调成目标值 —— **1h ↔ 4h 的像素级对齐全靠这个函数**。
+ *
+ * klinecharts 的 x 轴是**按索引等距**排的（没有时间轴模式），
+ * 所以「同一时刻落在同一横坐标」这件事等价于：
+ *
+ *   (总根数 − 该时刻的下标) × barSpace   在各周期下必须相等
+ *
+ * 而「距右端的根数」按周期成反比（同一段时间：1h 480 根 = 4h 120 根），
+ * 因此只要 **barSpace 也按周期成正比**（4h 的 barSpace = 1h 的 4 倍），
+ * 同一时刻就必然落在同一个像素上。
+ *
+ * ⇒ 做法：以 1h 档为基准定一个「可见根数 n」（必须是 4 的倍数），
+ *   1h 显示 n 根、4h 显示 n/4 根，barSpace = 可用宽度 / 根数 ⇒ 自动 4:1。
+ *
+ * ⚠️ 15m 是例外：15m×4 = 1920 根，按 4px/根算需要 7680px 宽 —— 任何屏幕都放不下。
+ *   所以 15m 只能保证**右端锚定**（右端始终是「当前时刻」那一根，与 1h/4h 同一像素），
+ *   跨度按容器宽度自适应。这是像素物理限制，不是实现偷懒。
+ */
+function applyTargetBarSpace(chart: Chart, period: ChartPeriod) {
   const size = chart.getSize();
   if (!size || !size.width) return;
   // 右侧价格轴占 ~64px，再留一点余量
   const usable = Math.max(160, size.width - 72);
-  // 每根至少 4px 才看得清 → 窄屏下的可见根数上限
-  const maxByWidth = Math.floor(usable / 4);
-  const realTarget = Math.max(20, Math.min(target, maxByWidth));
-  const space = usable / realTarget;
-  chart.setBarSpace(Math.max(2.5, Math.min(20, space)));
+
+  // 1h 为基准：n 根 1h ⇔ n/4 根 4h（n 取 4 的倍数，4h 桶才对得上）
+  const maxByWidth1h = Math.floor(usable / MIN_BAR_PX);
+  const n1h = Math.max(4, Math.floor(Math.min(VISIBLE_BARS['1h'], maxByWidth1h) / 4) * 4);
+
+  const byPeriod: Record<ChartPeriod, number> = {
+    '1h': n1h,
+    '4h': n1h / 4,
+    '15m': Math.min(VISIBLE_BARS['15m'], Math.floor(usable / MIN_BAR_PX_FINE)),
+  };
+  const target = Math.max(4, Math.round(byPeriod[period]));
+  const space = Math.max(1.5, Math.min(48, usable / target));
+  chart.setBarSpace(space);
+  // 右侧留白随 barSpace 反向补偿 —— 各周期的时间轴才会落在同一像素上
+  setOffsetRight(chart, Math.max(8, OFFSET_RIGHT_BASE - space / 2));
 }
 
 /** 为图表实例装载一组指标；先清掉旧的，再按分组重建 */
@@ -444,6 +543,11 @@ interface Props {
   /** 15m 独立序列（仅 BTC/ETH 有，其他标的为空数组） */
   bars15m: Bar[];
   cursor: number;
+  /**
+   * 当前时刻（epoch ms）—— 精确到 15m 内部的位置真值（v6.3）。
+   * 图表右端锚定它，15m 档的步进也按它走。
+   */
+  cursorMs: number;
   /** 练习起点（1h 索引）—— 用于确定预热窗口左端与起点标记 */
   startCursor: number;
   openTrade: OpenTrade | null;
@@ -461,6 +565,7 @@ export function ChartPanel({
   bars1h,
   bars15m,
   cursor,
+  cursorMs,
   startCursor,
   openTrade,
   indicators4h,
@@ -497,6 +602,8 @@ export function ChartPanel({
   // 游标只用于「初始化时取已揭示切片」，不作为重建图表的依赖
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
+  const cursorMsRef = useRef(cursorMs);
+  cursorMsRef.current = cursorMs;
   const startCursorRef = useRef(startCursor);
   startCursorRef.current = startCursor;
   // 周期镜像：给只跑一次的 effect（图表实例初始化）读取最新周期
@@ -517,10 +624,10 @@ export function ChartPanel({
   );
   const revealed4h = useMemo(() => derive4h(revealed1h), [revealed1h]);
 
-  /** 15m 的窗口（独立序列，按时间戳切；右端跟随 cursor） */
+  /** 15m 的窗口（独立序列，按时间戳切；右端跟随当前时刻 cursorMs） */
   const window15m = useMemo(
-    () => calcWindow15m(bars15m, bars1h, resolveAnchor(startCursor, cursor), cursor),
-    [bars15m, bars1h, cursor, startCursor],
+    () => calcWindow15m(bars15m, bars1h, resolveAnchor(startCursor, cursor), cursor, cursorMs),
+    [bars15m, bars1h, cursor, cursorMs, startCursor],
   );
   const revealed15m = useMemo(
     () =>
@@ -552,7 +659,9 @@ export function ChartPanel({
     const chart = init(el, { styles: BINANCE_STYLES, locale: 'zh-CN' });
     if (!chart) return;
     chartRef.current = chart;
-    chart.setOffsetRightDistance(64);
+    // 注意：offsetRightDistance 由 applyTargetBarSpace 统一管理
+    // （它必须随 barSpace 反向补偿，否则切周期时时间轴会整体平移），
+    // 这里只设一个初值，真正的设置在每次重建数据后发生。
 
     // ---------- 鼠标 / 触摸交互：悬停跟随 + 点击锁定 ----------
     const onPointerMove = (ev: PointerEvent) => {
@@ -599,7 +708,7 @@ export function ChartPanel({
     const ro = new ResizeObserver(() => {
       chart.resize();
       applyPaneHeights(chart, containerRef.current!, paneIdsRef.current, weightsRef.current);
-      applyTargetBarSpace(chart, TARGET_VISIBLE[periodRef.current]);
+      applyTargetBarSpace(chart, periodRef.current);
     });
     ro.observe(el);
 
@@ -720,7 +829,7 @@ export function ChartPanel({
 
     let series: Bar[];
     if (period === '15m') {
-      const w = calcWindow15m(bars15m, bars1h, anchor, c);
+      const w = calcWindow15m(bars15m, bars1h, anchor, c, cursorMsRef.current);
       series = w.to < w.from ? [] : bars15m.slice(w.from, w.to + 1);
     } else {
       const winStart = c >= 0 ? calcWindowStart(bars1h, anchor, period) : 0;
@@ -733,7 +842,7 @@ export function ChartPanel({
     chart.setPeriod({ type: 'hour', span: period === '4h' ? 4 : period === '15m' ? 0.25 : 1 });
     chart.setDataLoader(feed.loader);
     chart.resetData();
-    applyTargetBarSpace(chart, TARGET_VISIBLE[period]);
+    applyTargetBarSpace(chart, period);
     applyPaneHeights(chart, containerRef.current!, paneIdsRef.current, weightsRef.current);
 
     loadedKeyRef.current = key;
@@ -748,7 +857,7 @@ export function ChartPanel({
 
     syncFeed(chart, feed, activeBars.map(toKLineData));
     // 回退导致 resetData 时，barSpace 会被重置 —— 补一次
-    applyTargetBarSpace(chart, TARGET_VISIBLE[period]);
+    applyTargetBarSpace(chart, period);
   }, [activeBars, symbol, period]);
 
   // ---------- 持仓：画入场/止损/目标线（1h 与 15m 图上都画） ----------
@@ -924,7 +1033,7 @@ export function ChartPanel({
       <div className="chart-foot">
         <span className="muted">
           {period === '15m'
-            ? '15m 为 1h 同一时间轴的高分辨率视图（右端锚定当前小时），回放推进仍按 1h'
+            ? '15m 为 1h 同一时间轴的高分辨率视图（右端锚定当前时刻），单步按 15m 推进'
             : '点击任意 K 线锁定查看详情，再次点击空白处或按 ESC 解除'}
         </span>
         {locked && (

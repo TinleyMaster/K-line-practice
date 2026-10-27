@@ -27,7 +27,7 @@
   /* 练习台侧栏宽度：回放条吸底时要用它算出 right 偏移，避免遮挡右侧交易面板 */
   --side-col: 340px;
   /* 单图模式下一个图表要占满高度 */
-  --chart-height: 430px;
+  --chart-height: 560px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
@@ -389,24 +389,29 @@ body {
   opacity: 0.75;
 }
 
-/* OHLC 详情条 */
+/* OHLC 详情条
+   v6.3：从 flex-wrap 改成 CSS Grid。
+   为什么：详情项有 9 个（时间 + 开/高/低/收/涨跌/振幅/量/额/笔数），
+   flex-wrap 在窄屏会折成参差不齐的几行，标签与数值互相压盖（用户反馈「重重叠叠」）。
+   Grid + auto-fit 让每项各占一格、标签在上数值在下 —— 结构上就不可能重叠。 */
 .ohlc-strip {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 6px 10px;
   font-size: 12px;
-  min-height: 26px;
   flex: 1;
   min-width: 0;
+  align-items: end;
 }
 
 .ohlc-time {
+  grid-column: span 2;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .ohlc-lock {
@@ -419,20 +424,26 @@ body {
 }
 
 .ohlc-cell {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 .ohlc-label {
   color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .ohlc-value {
   color: var(--text);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chart-canvas-wrap {
@@ -536,6 +547,22 @@ body {
 
 .replay-reset {
   flex: none;
+}
+
+/* 单步步长徽标 —— 文案保持「单步」二字（e2e 脚本按文字定位按钮），
+   步长用小徽标表达，一眼看出「单步 = 一根当前周期的 K 线」。 */
+.step-tag {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: rgba(252, 213, 53, 0.14);
+  border: 1px solid rgba(252, 213, 53, 0.34);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  vertical-align: 1px;
 }
 
 /* 窄屏用图标态：宽屏显示全文字，窄屏只留图标，5 个按钮才能挤进一行 */
@@ -1484,7 +1511,7 @@ textarea {
 /* ---- 3. iPad 竖屏及以下（≤1024px）：单列 + 侧栏双列 ---- */
 @media (max-width: 1024px) {
   :root {
-    --chart-height: 380px;
+    --chart-height: 460px;
   }
 
   .practice-layout {
@@ -1560,7 +1587,7 @@ textarea {
   }
 
   :root {
-    --chart-height: 360px;
+    --chart-height: clamp(280px, 48dvh, 470px);
     --side-col: 320px;
   }
 }
@@ -1568,7 +1595,7 @@ textarea {
 /* ---- 5. 手机（≤767px）：紧凑布局 ---- */
 @media (max-width: 767px) {
   :root {
-    --chart-height: clamp(240px, 44dvh, 420px);
+    --chart-height: clamp(280px, 48dvh, 470px);
   }
 
   /* 回放条：5 个按钮压成一行（窄屏只显示图标，触控高度不变） */
@@ -1764,7 +1791,8 @@ textarea {
   }
 
   .ohlc-strip {
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+    gap: 4px 8px;
     font-size: 11px;
   }
 

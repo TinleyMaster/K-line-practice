@@ -136,7 +136,9 @@ server {
 |---|---|
 | 更新 K 线（增量补最新） | `npm run db:materialize -- 6` |
 | 物化合约 15m（源表 → practice，60 秒） | `npm run db:mat15m` |
-| 深回填 15m / 1h（币安 API，跨机写 515 行/秒） | `npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market perp --interval 15m --since 2022-12-01` |
+| 深回填 15m / 1h（币安 API，跨机写 515 行/秒） | `npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market perp --interval 15m --since 2019-09-08` |
+| **只补缺失的那一段**（不重复拉已有数据） | `npm run deep:fill -- --symbols BTCUSDT --market spot --interval 15m --since 2017-08-17 --until 2022-12-01` |
+| 历史深度自检（BTC/ETH 是否回填到位） | `npm run verify:v6depth` |
 | 查看内存缓存 | `curl http://127.0.0.1:8787/api/klines/_cache/stats` |
 | 清缓存 | `curl -X DELETE "http://127.0.0.1:8787/api/klines/_cache/BTCUSDT?market=perp"` |
 | 健康检查 | `curl http://127.0.0.1:8787/api/health` |
@@ -149,6 +151,16 @@ server {
 >
 > `deep:fill` 拉完会自动调 `DELETE /api/klines/_cache/:symbol?market=…` 清服务端内存缓存
 > （服务没起就跳过，不影响写入）。改了后端代码**必须重启进程**才生效。
+>
+> **币安 15m / 1h 的历史边界（2026-10-27 实测）**：现货最早 2017-08-17；
+> 合约 BTC 最早 2019-09-08、ETH 最早 2019-11-27 —— 这就是回填的物理下限，
+> 不是脚本能力问题。再往前的年份币安自己就没有 15m 粒度数据。
+>
+> `--since/--until` 组合是深回填的省请求姿势：**只补缺的段**，别把已有数据重拉一遍
+> （15m 全量重拉比只补缺失段多耗约 40% 请求与跨机写入）。
+>
+> ⚠️ **合约的 15m 首根（:45）比 1h 首根（:00）晚 45 分钟** —— 那是币安合约的固有事实
+> （首根 1h 桶的前 45 分钟源数据里没有 15m 明细），不是回填漏了。
 
 ---
 

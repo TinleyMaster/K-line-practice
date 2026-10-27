@@ -231,20 +231,37 @@ try {
 
   await page.screenshot({ path: path.join(OUT, 'v3-indicators.png') });
 
-  // 3.4 副图上限 2 个 —— 勾第 3 个副图应被禁用
-  const thirdPane = await page.evaluate(() => {
-    const labels = [...document.querySelectorAll('.ind-item')];
-    const paneLabels = labels.filter((l) => {
+  // 3.4 副图上限 —— 勾到不能再勾时，应出现 disabled + limited 的项
+  //
+  // ⚠️ 这里**不硬编码上限值**（v6.3 把上限从 2 改成了 4）。
+  //   写死「勾第 3 个应被禁」的话，改上限后这条断言会静默失效 ——
+  //   表现是「找不到 disabled 项」，很容易被误判成产品 bug。
+  //   改成「一直勾到出现 disabled 为止」，上限怎么改都不用动脚本。
+  const paneLimit = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const paneItems = [...document.querySelectorAll('.ind-item')].filter((l) => {
       const code = l.querySelector('.ind-code')?.textContent;
-      return ['MACD', 'KDJ', 'CCI', 'WR'].includes(code);
+      return ['MACD', 'KDJ', 'CCI', 'WR', 'VR', 'PSY', 'ROC', 'OBV'].includes(code);
     });
-    const target = paneLabels.find((l) => {
+    let checked = 0;
+    for (const l of paneItems) {
       const inp = l.querySelector('input');
-      return !inp.checked && inp.disabled;
+      if (!inp || inp.disabled) break;
+      inp.click();
+      await sleep(150);
+      if (inp.checked) checked++;
+    }
+    const limited = paneItems.find((l) => {
+      const inp = l.querySelector('input');
+      return inp && !inp.checked && inp.disabled;
     });
-    return { found: !!target, limited: !!target?.classList.contains('limited') };
+    return { checked, found: !!limited, limited: !!limited?.classList.contains('limited') };
   });
-  log('副图超过上限时被禁用', thirdPane.found && thirdPane.limited, JSON.stringify(thirdPane));
+  log(
+    '副图超过上限时被禁用',
+    paneLimit.found && paneLimit.limited,
+    JSON.stringify(paneLimit),
+  );
 
   // 3.5 切到 1h 周期配置独立
   const oneHourTabs = await page.$$('.ind-period-tab');

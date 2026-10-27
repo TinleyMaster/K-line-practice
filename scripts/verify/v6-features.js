@@ -184,8 +184,14 @@ try {
 
   const before15 = await readChart(page);
   const beforeLast = before15?.last ?? null;
+  // ⚠️ 不要用 `[title="前进一根 1h"]` 这种精确 title 选择器 ——
+  //   v6.3 起 title 是动态的（随周期变成「前进一根 15m…」），匹配不到就静默不点击。
+  //   统一按文案「单步」定位（文案保持稳定，步长用徽标表达）。
   await page.evaluate(() => {
-    document.querySelector('.replay-btns [title="前进一根 1h"]')?.click();
+    const b = [...document.querySelectorAll('.replay-btns .btn')].find((x) =>
+      x.textContent.includes('单步'),
+    );
+    b?.click();
   });
   await sleep(1800);
   const after15 = await readChart(page);

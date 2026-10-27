@@ -163,6 +163,20 @@ try {
   /* ==================== ② 后退 ==================== */
   console.log('\n═══ ② K 线后退 ═══');
 
+  // v6.3 起，**单步步长跟随当前图表周期**（15m / 1h / 4h）。
+  // 上面 ① 段结束时周期停在 4h ⇒ 「后退一根」会退 4 根 1h，
+  // 而本段的断言语义是「退 1 根 1h / 退 4 根 / 前进 5 次回到最远」——
+  // 必须先切到 1h 档，断言才有确定含义。
+  //
+  // （v4 时代只有 4h/1h 两档且步长与周期无关；v6.3 之后不指定档位就是含糊的。）
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('.period-tab')].find(
+      (x) => x.querySelector('.period-main')?.textContent.trim() === '1h',
+    );
+    b?.click();
+  });
+  await sleep(1400);
+
   const c0 = await readCursor(page);
   log('初始游标可读', !!c0, JSON.stringify(c0));
 

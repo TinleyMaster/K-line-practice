@@ -68,6 +68,23 @@ interface PracticeState {
 
   /* 回放 */
   cursor: number;
+  /**
+   * 当前时刻（epoch ms）—— **精确到 15m 的位置真值**。
+   *
+   * 为什么不让 cursor 兼此职：cursor 是 bars1h 的**索引**，粒度固定 1h。
+   * 而 v6.3 要求「停在 15m 图时，单步就前进一根 15m」—— 1h 索引表达不了
+   * 15 分钟的位置（index 不能是小数）。
+   *
+   * 两者关系（不变量，务必保持）：
+   *   bars1h[cursor].time <= cursorMs < bars1h[cursor + 1].time
+   * 即 cursor 始终是「包含 cursorMs 的那根 1h」。
+   *
+   * 于是：cursor 是**引擎真值**（开平仓判定、权益曲线、落库都按 1h 走），
+   * cursorMs 是**视线真值**（图表右端、步进粒度、开仓取价都按它走）。
+   * 15m 步进时可能只动 cursorMs 而不动 cursor —— 引擎仍以 1h 为准，
+   * 这与「引擎只知道 1h」的设计一致。
+   */
+  cursorMs: number;
   startCursor: number;
   /** 已回放到的最远位置。cursor < maxCursor 即为「回看模式」（往回看，不能开仓） */
   maxCursor: number;
@@ -119,9 +136,13 @@ interface PracticeState {
   startReplay: (fromIndex?: number) => Promise<void>;
   resetReplay: () => void;
   next: () => void;
-  /** 后退一根 1h（回看） */
+  /** 后退一步（步长跟随当前图表周期：15m / 1h / 4h） */
   prev: () => void;
-  /** 后退一根 4h（回看） */
+  /** 引擎推进一根 1h —— 内部用 */
+  advance1h: () => void;
+  /** 引擎回退一根 1h —— 内部用 */
+  back1h: () => void;
+  /** 后退一根 4h（= 4 根 1h） */
   back4h: () => void;
   jump4h: () => void;
   play: () => void;
@@ -170,6 +191,63 @@ const DEFAULT_EQUITY = 10000;
 export const MIN_4H_CONTEXT = 120;
 
 /**
+ * 每个周期的**单步时长**（v6.3）。
+ *
+ * 需求：单步前进/后退的步长跟随当前图表所在周期 ——
+ *   停在 15m → 前进一根 15m；停在 1h → 一根 1h；停在 4h → 一根 4h。
+ *
+ * 之前是硬编码的「一根 1h」（next/prev）与「四根 1h」（jump4h/back4h），
+ * 跟图表周期脱节 —— 在 15m 图上看「当前小时内部」的走势时，
+ * 按钮却一格跳过一整小时，精细操作用不上。
+ */
+export const STEP_MS: Record<ChartPeriod, number> = {
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+};
+
+/**
+ * 二分查找：bars 中「开盘时间 <= t 的最后一根」的索引；t 早于全部则返回 -1。
+ *
+ * 注意是**按时间**而非按下标 —— 15m 与 1h 是两套独立序列，
+ * 同一个时刻在两套序列里的下标完全不同，只能按时间定位。
+ */
+function indexAtOrBefore(bars: Bar[], t: number): number {
+  if (!bars.length) return -1;
+  let lo = 0;
+  let hi = bars.length - 1;
+  let res = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].time <= t) {
+      res = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return res;
+}
+
+/**
+ * 取「当前时刻」对应的价格 K 线。
+ *
+ * 优先用 15m：cursorMs 落在某根 1h 内部时（15m 档走到一半），
+ * 用 1h 收盘价当"现价"会让用户看到的图和实际开仓价对不上。
+ * 15m 不可用（非 BTC/ETH）或该时刻之前没有 15m 时，退回 1h。
+ */
+export function priceBarAt(bars1h: Bar[], bars15m: Bar[], cursor: number, cursorMs: number): Bar | null {
+  const h = bars1h[cursor];
+  if (!h) return null;
+  if (!bars15m.length || cursorMs < 0) return h;
+  const i = indexAtOrBefore(bars15m, cursorMs);
+  if (i < 0) return h;
+  const fine = bars15m[i];
+  // 必须落在同一根 1h 区间内，否则说明 15m 与 1h 时钟不同步，回退
+  return fine.time >= h.time ? fine : h;
+}
+
+/**
  * 计算练习起点索引。
  *
  * @param bars1h    全部 1h K 线
@@ -215,6 +293,7 @@ export const usePracticeStore = create<PracticeState>()(
       error: null,
 
       cursor: -1,
+      cursorMs: -1,
       startCursor: -1,
       maxCursor: -1,
       playing: false,
@@ -296,6 +375,7 @@ export const usePracticeStore = create<PracticeState>()(
             bars15m: [],
             note15m: null,
             cursor: -1,
+            cursorMs: -1,
             maxCursor: -1,
             openTrade: null,
             closedTrades: [],
@@ -322,6 +402,7 @@ export const usePracticeStore = create<PracticeState>()(
             bars15m,
             note15m: data.note15m ?? null,
             cursor: start,
+            cursorMs: bars1h[start]?.time ?? -1,
             startCursor: start,
             maxCursor: start,
             openTrade: null,
@@ -357,6 +438,7 @@ export const usePracticeStore = create<PracticeState>()(
             startMode: 'auto',
             manualStartTime: null,
             cursor: idx,
+            cursorMs: state.bars1h[idx]?.time ?? -1,
             startCursor: idx,
             maxCursor: idx,
             openTrade: null,
@@ -377,6 +459,7 @@ export const usePracticeStore = create<PracticeState>()(
           startMode: 'manual',
           manualStartTime: time,
           cursor: idx,
+          cursorMs: state.bars1h[idx]?.time ?? -1,
           startCursor: idx,
           maxCursor: idx,
           openTrade: null,
@@ -408,6 +491,7 @@ export const usePracticeStore = create<PracticeState>()(
         const cursor = fromIndex ?? get().cursor;
         set({
           cursor,
+          cursorMs: bars1h[cursor]?.time ?? -1,
           startCursor: cursor,
           maxCursor: cursor,
           openTrade: null,
@@ -435,10 +519,12 @@ export const usePracticeStore = create<PracticeState>()(
       },
 
       resetReplay: () => {
-        const { cursor } = get();
+        const { cursor, bars1h } = get();
+        const idx = cursor >= 0 ? cursor : 0;
         set({
-          cursor: cursor >= 0 ? cursor : 0,
-          maxCursor: cursor >= 0 ? cursor : 0,
+          cursor: idx,
+          cursorMs: bars1h[idx]?.time ?? -1,
+          maxCursor: idx,
           openTrade: null,
           closedTrades: [],
           equity: DEFAULT_EQUITY,
@@ -451,7 +537,7 @@ export const usePracticeStore = create<PracticeState>()(
       },
 
       /**
-       * 后退一根 1h —— 回看模式。
+       * 引擎回退一根 1h —— 回看模式。**内部用**，对外的 prev 是「按当前周期步进」。
        *
        * 语义边界（刻意保守，避免制造「时间旅行」的错觉）：
        * - 只回看画面与浮动盈亏，**不撤销已平仓交易**（历史就是历史）；
@@ -459,14 +545,16 @@ export const usePracticeStore = create<PracticeState>()(
        * - 权益曲线按游标截断，浮动盈亏按当前价重算；
        * - 回看时 maxCursor 不变，游标回到 maxCursor 即退出回看模式。
        */
-      prev: () => {
+      back1h: () => {
         const state = get();
         const { bars1h, cursor, openTrade } = state;
         if (cursor <= 0) return;
 
         let target = cursor - 1;
         if (openTrade) {
-          const entryIdx = bars1h.findIndex((b) => b.time === openTrade.entryTime);
+          // entryTime 可能是 15m 粒度（v6.3）—— 要找的是「包含入场时刻的那根 1h」，
+          // 不能用等值匹配（等值匹配会因粒度不同而永远找不到 → 持仓期回退限制失效）
+          const entryIdx = bars1h.findIndex((b) => b.time <= openTrade.entryTime);
           if (entryIdx >= 0 && target < entryIdx) target = entryIdx;
         }
 
@@ -479,18 +567,75 @@ export const usePracticeStore = create<PracticeState>()(
 
         set({
           cursor: target,
+          cursorMs: bar.time,
           playing: false,
           equity,
           equityCurve: state.equityCurve.filter((p) => p.time <= bar.time),
         });
       },
 
-      /** 后退一根 4h（= 4 根 1h） */
-      back4h: () => {
-        for (let i = 0; i < 4; i++) get().prev();
+      /**
+       * 后退一步 —— **步长跟随当前图表周期**（v6.3）。
+       *
+       * 停在 15m → 退一根 15m；1h → 退一根 1h；4h → 退一根 4h。
+       *
+       * 实现要点：cursorMs 减一个步长得到目标时刻 target，
+       * 再用 target 反查「包含它的 1h 索引」：
+       *   - target 仍在同一根 1h 内（15m 档常见）→ 引擎不动，只挪 cursorMs
+       *   - target 跨到了更早的 1h → 引擎逐根回退（触发权益曲线截断、浮盈重算）
+       *
+       * ⚠️ 边界只挡「数据起点」，**不挡练习起点** ——
+       *   练习起点之前是预热区（本来就给用户看的历史），允许回看进去。
+       *   （v6.3 初版误加「不许越过练习起点」的限制，把 v4 的回看功能整个锁死了。）
+       */
+      prev: () => {
+        const state = get();
+        const { bars1h, cursor, cursorMs } = state;
+        if (cursor <= 0) return;
+
+        const base = cursorMs >= 0 ? cursorMs : (bars1h[cursor]?.time ?? 0);
+        const target = base - STEP_MS[state.chartPeriod];
+
+        // 边界：不能退到数据起点之前
+        if (target < (bars1h[0]?.time ?? 0)) return;
+
+        const targetIdx = indexAtOrBefore(bars1h, target);
+        if (targetIdx < 0) return;
+
+        while (get().cursor > targetIdx) get().back1h();
+        // 保持不变量 cursorMs ≥ bars1h[cursor].time（数据有缺口时 target 可能更早）
+        const floor = bars1h[get().cursor]?.time ?? target;
+        set({ cursorMs: Math.max(target, floor) });
       },
 
-      next: () => {
+      /**
+       * 后退一根 4h（= 4 根 1h）—— 快捷键，不受当前周期影响。
+       *
+       * ⚠️ 必须按**时间**推进（cursorMs -= 4h）而不是把 cursorMs 钉到 1h 边界：
+       *   若钉到 bars1h[cursor].time，会把 cursorMs 的 15m 小数位抹掉
+       *   （例：cursorMs 在 :15 分 → 被抹成 :00 → 后续步长全部错位 15 分钟）。
+       */
+      back4h: () => {
+        const state = get();
+        const { bars1h, cursor, cursorMs } = state;
+        if (cursor <= 0) return;
+
+        const base = cursorMs >= 0 ? cursorMs : (bars1h[cursor]?.time ?? 0);
+        const target = base - 4 * 3600000;
+        if (target < (bars1h[0]?.time ?? 0)) return;
+
+        const targetIdx = indexAtOrBefore(bars1h, target);
+        if (targetIdx < 0) return;
+
+        while (get().cursor > targetIdx) get().back1h();
+        const floor = bars1h[get().cursor]?.time ?? target;
+        set({ cursorMs: Math.max(target, floor) });
+      },
+
+      /**
+       * 引擎推进一根 1h —— **内部用**，对外的 next 是「按当前周期步进」。
+       */
+      advance1h: () => {
         const state = get();
         const { bars1h, cursor, openTrade, closedTrades } = state;
         if (cursor + 1 >= bars1h.length) {
@@ -566,8 +711,62 @@ export const usePracticeStore = create<PracticeState>()(
         }
       },
 
+      /**
+       * 前进一步 —— **步长跟随当前图表周期**（v6.3）。
+       *
+       * 停在 15m → 前进一根 15m；1h → 一根 1h；4h → 一根 4h。
+       *
+       * 上界判定用「当前周期能揭示到的最后一根」：
+       *   15m 档 → 最后一根 15m；1h/4h 档 → 最后一根 1h。
+       * 越界时停止播放（而不是静默不动）。
+       */
+      next: () => {
+        const state = get();
+        const { bars1h, bars15m, cursor, cursorMs, chartPeriod } = state;
+        if (cursor < 0 || !bars1h.length) return;
+
+        const base = cursorMs >= 0 ? cursorMs : (bars1h[cursor]?.time ?? 0);
+        const target = base + STEP_MS[chartPeriod];
+
+        const limit =
+          chartPeriod === '15m' && bars15m.length
+            ? bars15m[bars15m.length - 1].time
+            : (bars1h[bars1h.length - 1]?.time ?? 0);
+        if (target > limit) {
+          set({ playing: false });
+          return;
+        }
+
+        const targetIdx = indexAtOrBefore(bars1h, target);
+        if (targetIdx < 0) return;
+
+        // 引擎逐根推进（每根都会检查出场、记权益曲线、落库）
+        while (get().cursor < targetIdx) get().advance1h();
+        // 保持不变量 cursorMs < bars1h[cursor+1].time（数据有缺口时 target 可能更晚）
+        const ceil = bars1h[get().cursor + 1]?.time ?? Number.POSITIVE_INFINITY;
+        set({ cursorMs: Math.min(target, ceil) });
+      },
+
+      /**
+       * 前进一根 4h（= 4 根 1h）—— 快捷键，不受当前周期影响。
+       *
+       * ⚠️ 同 back4h：必须按**时间**推进（cursorMs += 4h），
+       *   不能把 cursorMs 钉到 bars1h[cursor].time —— 那会抹掉 15m 的小数位，
+       *   导致「按了 4h 跳，实际只走了 3h45m」这种隐性错位。
+       */
       jump4h: () => {
-        for (let i = 0; i < 4; i++) get().next();
+        const state = get();
+        const { bars1h, cursor, cursorMs } = state;
+        if (cursor < 0) return;
+
+        const base = cursorMs >= 0 ? cursorMs : (bars1h[cursor]?.time ?? 0);
+        const target = base + 4 * 3600000;
+        const targetIdx = indexAtOrBefore(bars1h, target);
+        if (targetIdx < 0) return;
+
+        while (get().cursor < targetIdx) get().advance1h();
+        const ceil = bars1h[get().cursor + 1]?.time ?? Number.POSITIVE_INFINITY;
+        set({ cursorMs: Math.min(target, ceil) });
       },
 
       play: () => set({ playing: true }),
@@ -584,7 +783,11 @@ export const usePracticeStore = create<PracticeState>()(
         const bar = state.bars1h[state.cursor];
         if (!bar) return { ok: false, msg: '当前没有可用的价格' };
 
-        const entryPrice = bar.close;
+        // 价格取「当前时刻」对应的那根 —— 15m 档下 cursorMs 可能落在某根 1h 内部，
+        // 用 1h 收盘价会让图上看到的价和实际开仓价对不上。
+        const priceBar = priceBarAt(state.bars1h, state.bars15m, state.cursor, state.cursorMs);
+        const entryPrice = (priceBar ?? bar).close;
+        const entryTime = state.cursorMs >= 0 ? state.cursorMs : bar.time;
         const risk = state.equity * (draft.riskPct / 100);
         const dist = Math.abs(entryPrice - draft.stopLoss);
         if (!Number.isFinite(dist) || dist <= 0) {
@@ -597,7 +800,7 @@ export const usePracticeStore = create<PracticeState>()(
           symbol: state.symbol,
           side: draft.side,
           setup: draft.setup,
-          entryTime: bar.time,
+          entryTime,
           entryPrice,
           stopLoss: draft.stopLoss,
           takeProfit: draft.takeProfit,
@@ -666,8 +869,10 @@ export const usePracticeStore = create<PracticeState>()(
         const trade = state.openTrade;
         if (!trade) return;
         const bar = state.bars1h[state.cursor];
-        const exitPrice = price ?? bar?.close ?? trade.entryPrice;
-        const closed = closeTrade(trade, bar?.time ?? Date.now(), exitPrice, reason);
+        const priceBar = priceBarAt(state.bars1h, state.bars15m, state.cursor, state.cursorMs);
+        const exitPrice = price ?? priceBar?.close ?? bar?.close ?? trade.entryPrice;
+        const exitTime = state.cursorMs >= 0 ? state.cursorMs : (bar?.time ?? Date.now());
+        const closed = closeTrade(trade, exitTime, exitPrice, reason);
         const realized = state.closedTrades.reduce((s, t) => s + t.pnl, 0) + closed.pnl;
         const equity = DEFAULT_EQUITY + realized;
         const peak = Math.max(state.peakEquity, equity);
@@ -829,6 +1034,7 @@ export const usePracticeStore = create<PracticeState>()(
         symbol: s.symbol,
         market: s.market,
         cursor: s.cursor,
+        cursorMs: s.cursorMs,
         startCursor: s.cursor,
         openTrade: s.openTrade,
         closedTrades: s.closedTrades,

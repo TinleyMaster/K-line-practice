@@ -18,6 +18,10 @@ import { fetchKlines as fetchBinanceKlines } from '../services/sources/binance.j
  *   node src/scripts/deep-fill.js --symbols BTCUSDT,ETHUSDT --market perp --interval 15m --since 2022-12-01
  *   node src/scripts/deep-fill.js --symbols BTCUSDT,ETHUSDT --market spot --interval 1h  --since 2017-08-17
  *
+ * --until 可选，用来**只补缺失的那一段**（避免把已有数据重复拉一遍）：
+ *   node src/scripts/deep-fill.js --symbols BTCUSDT --market spot --interval 15m \
+ *     --since 2017-08-17 --until 2022-12-01
+ *
  * 幂等：upsert，重复跑安全。
  */
 
@@ -95,7 +99,20 @@ async function main() {
   const interval = String(args.interval || '15m');
   const since = String(args.since || '2022-12-01');
   const sinceMs = Date.parse(`${since}T00:00:00Z`);
-  const untilMs = Date.now();
+  // --until 默认到此刻；给了就只拉到那一刻（补缺失段用）
+  const until = args.until ? String(args.until) : null;
+  const untilMs = until ? Date.parse(`${until}T00:00:00Z`) : Date.now();
+
+  if (Number.isNaN(sinceMs) || Number.isNaN(untilMs)) {
+    console.error(`[deep] --since/--until 日期格式非法：since=${since} until=${until}`);
+    await closePool();
+    process.exit(1);
+  }
+  if (untilMs <= sinceMs) {
+    console.error(`[deep] --until 必须晚于 --since：${since} → ${until}`);
+    await closePool();
+    process.exit(1);
+  }
 
   if (!['1h', '15m', '4h'].includes(interval)) {
     console.error(`[deep] 不支持的周期：${interval}（可用：1h / 15m）`);
@@ -103,7 +120,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`[deep] market=${market} interval=${interval} symbols=${symbols.join(',')} since=${since}`);
+  console.log(`[deep] market=${market} interval=${interval} symbols=${symbols.join(',')} since=${since} until=${until ?? 'now'}`);
 
   await initSchema((sql) => query(sql));
   await migrateMarketDimension((sql) => query(sql));

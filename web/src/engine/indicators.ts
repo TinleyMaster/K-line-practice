@@ -86,7 +86,7 @@ export const DEFAULT_4H: string[] = ['MA', 'VOL'];
 export const DEFAULT_1H: string[] = ['MA', 'VOL'];
 
 /** 一个周期下允许同时常驻的独立副图数量上限 */
-export const MAX_RESIDENT_PANES = 2;
+export const MAX_RESIDENT_PANES = 4;
 
 /**
  * 校验并规整一份指标选择配置。

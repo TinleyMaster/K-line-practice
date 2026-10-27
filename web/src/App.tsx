@@ -16,6 +16,7 @@ import { AuthPanel } from './components/AuthPanel';
 import { PkView } from './components/PkView';
 import { PendingJournal } from './components/PendingJournal';
 import { fmtPrice, fmtTime } from './engine/bars';
+import { priceBarAt } from './store/usePracticeStore';
 
 type View = 'practice' | 'stats' | 'setups' | 'pk';
 /** 当前打开的弹出面板（互斥 —— 两个 fixed 弹窗同时存在会互相盖住） */
@@ -34,7 +35,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentBar = store.cursor >= 0 ? store.bars1h[store.cursor] : null;
+  /**
+   * 「现价」= 当前时刻对应的那根 K 线的收盘价。
+   *
+   * v6.3：15m 档下 cursorMs 可能落在某根 1h 内部，此时用 1h 收盘价当现价
+   * 会让顶栏价格、开仓价和图上看到的 K 线对不上 —— 统一按 cursorMs 定位。
+   */
+  const currentBar = useMemo(
+    () => priceBarAt(store.bars1h, store.bars15m, store.cursor, store.cursorMs),
+    [store.bars1h, store.bars15m, store.cursor, store.cursorMs],
+  );
   const currentPrice = currentBar?.close ?? 0;
   const totalR = store.closedTrades.reduce((s, t) => s + t.rMultiple, 0);
 
@@ -70,7 +80,8 @@ export default function App() {
     const v = Number(e.target.value);
     if (!Number.isFinite(v)) return;
     const idx = Math.max(0, Math.min(store.bars1h.length - 1, v));
-    usePracticeStore.setState({ cursor: idx });
+    // cursorMs 必须同步 —— 否则跳过去后，15m 档的右端还停在旧位置
+    usePracticeStore.setState({ cursor: idx, cursorMs: store.bars1h[idx]?.time ?? -1 });
   };
 
   const revealed = useMemo(
@@ -182,6 +193,7 @@ export default function App() {
                   bars1h={store.bars1h}
                   bars15m={store.bars15m}
                   cursor={store.cursor}
+                  cursorMs={store.cursorMs}
                   startCursor={store.startCursor}
                   openTrade={store.openTrade}
                   indicators4h={store.indicators4h}
@@ -195,6 +207,7 @@ export default function App() {
                   speed={store.speed}
                   cursor={store.cursor}
                   total={store.bars1h.length}
+                  period={store.chartPeriod}
                   lookback={lookback}
                   onPlay={store.play}
                   onPause={store.pause}
