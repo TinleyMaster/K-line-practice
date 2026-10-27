@@ -101,12 +101,17 @@ const server = app.listen(config.port, config.host, async () => {
   }
 
   // 预热：异步进行，不阻塞端口监听；失败不影响服务可用性
+  //
+  // 延后 3 秒再开始 —— 预热与用户请求共用连接池，
+  // 刚启动就开工会让首批请求排队（实测 health 从 <50ms 劣化到 4.4s）。
   if (config.prewarm) {
-    prewarm({ limit: config.prewarmLimit, concurrency: config.prewarmConcurrency })
-      .then((r) => {
-        console.log(`[server] 预热完成：${r.ok}/${r.total} 标的进入内存缓存${r.fail ? `，失败 ${r.fail}` : ''}`);
-      })
-      .catch((err) => console.warn('[server] 预热失败（不影响服务）:', err.message));
+    setTimeout(() => {
+      prewarm({ limit: config.prewarmLimit, concurrency: config.prewarmConcurrency })
+        .then((r) => {
+          console.log(`[server] 预热完成：${r.ok}/${r.total} 标的进入内存缓存${r.fail ? `，失败 ${r.fail}` : ''}`);
+        })
+        .catch((err) => console.warn('[server] 预热失败（不影响服务）:', err.message));
+    }, 3000);
   }
 });
 

@@ -38,9 +38,13 @@ export const config = {
   autoMigrate: String(process.env.AUTO_MIGRATE ?? 'true').toLowerCase() === 'true',
 
   // 启动预热：把已登记标的提前拉进内存缓存（跨机 DB RTT 高时收益明显）
+  //
+  // 并发**必须压低**：连接池 max=10，预热并发 8 会占掉 8 个连接，
+  // 只剩 2 个给用户请求 —— 实测预热期间 /api/health 要 4.4 秒（正常 <50ms），
+  // 用户第一访撞上预热高峰就会以为服务坏了。3 个连接够预热用，API 留 7 个。
   prewarm: String(process.env.PREWARM ?? 'true').toLowerCase() === 'true',
   prewarmLimit: Number(process.env.PREWARM_LIMIT || 1200),
-  prewarmConcurrency: Number(process.env.PREWARM_CONCURRENCY || 8),
+  prewarmConcurrency: Number(process.env.PREWARM_CONCURRENCY || 3),
 
   // 15m 预热标的（逗号分隔）。15m 数据量是 1h 的 4 倍，只给核心标的做。
   prewarmDeepSymbols: String(process.env.PREWARM_DEEP_SYMBOLS || 'BTCUSDT,ETHUSDT')

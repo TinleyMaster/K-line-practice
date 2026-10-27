@@ -135,10 +135,20 @@ server {
 | 需求 | 命令 |
 |---|---|
 | 更新 K 线（增量补最新） | `npm run db:materialize -- 6` |
+| 物化合约 15m（源表 → practice，60 秒） | `npm run db:mat15m` |
+| 深回填 15m / 1h（币安 API，跨机写 515 行/秒） | `npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market perp --interval 15m --since 2022-12-01` |
 | 查看内存缓存 | `curl http://127.0.0.1:8787/api/klines/_cache/stats` |
-| 清缓存 | `curl -X DELETE http://127.0.0.1:8787/api/klines/_cache/BTCUSDT` |
+| 清缓存 | `curl -X DELETE "http://127.0.0.1:8787/api/klines/_cache/BTCUSDT?market=perp"` |
 | 健康检查 | `curl http://127.0.0.1:8787/api/health` |
 | 增删练习标的 | 直接改 `practice.symbols` 表，或用 `PATCH /api/symbols/:symbol` |
+
+> **两条回填路径的成本差 400 倍**：
+> `db:mat15m` 是 `INSERT … SELECT`，源表和物化表在同一台机器上，走回环 GB/s，84 万行 61 秒；
+> `deep:fill` 走币安 API + 跨机 COPY，515 行/秒，84 万行要 27 分钟。
+> **凡源表能给的，一律走 `db:mat15m`。**
+>
+> `deep:fill` 拉完会自动调 `DELETE /api/klines/_cache/:symbol?market=…` 清服务端内存缓存
+> （服务没起就跳过，不影响写入）。改了后端代码**必须重启进程**才生效。
 
 ---
 

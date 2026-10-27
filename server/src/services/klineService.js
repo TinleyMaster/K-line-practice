@@ -346,21 +346,27 @@ export function getCacheStats() {
 }
 
 export function clearBarCache(market, symbol) {
-  const dropState = (sym) => {
+  // 键格式：${market}:${symbol}:${interval}
+  //
+  // 注意不能用 `k.endsWith(':' + sym)` —— 键末尾是 interval 不是 symbol，
+  // 那样永远匹配不到（v6 加 interval 维度时漏改的一处，清缓存形同虚设）。
+  // 拆段比较最稳，也兼容 v5 时代的 2 段键 `${market}:${symbol}`。
+  const dropState = (sym, mk) => {
     for (const k of [...materializeState.keys()]) {
-      if (k.endsWith(`:${sym}`)) materializeState.delete(k);
+      const parts = k.split(':');
+      if (parts[1] === sym && (!mk || parts[0] === mk)) materializeState.delete(k);
     }
   };
   if (market && symbol) {
     for (const k of [...barCache.keys()]) {
       if (k === `${market}:${symbol}:1h` || k.startsWith(`${market}:${symbol}:`)) barCache.delete(k);
     }
-    dropState(symbol);
+    dropState(symbol, market);
   } else if (symbol) {
     for (const k of [...barCache.keys()]) {
       if (k.includes(`:${symbol}:`)) barCache.delete(k);
     }
-    dropState(symbol);
+    dropState(symbol, null);
   } else {
     barCache.clear();
     materializeState.clear();

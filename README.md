@@ -151,9 +151,15 @@
 
 | 市场 | market | 数据源 | 回填方式 | 实测覆盖 |
 |---|---|---|---|---|
-| 币安 U 本位合约 | `perp` | `biz.asset_klines`（原库，只读物化） | `npm run db:materialize` | 60 标的 / 148.9 万根 |
-| 币安现货 | `spot` | 币安现货 REST `/api/v3/klines` | `node src/scripts/backfill.js spot-all` | 12 标的 / 365 天 0 缺口 |
-| 链上美股 | `stock` | Binance Alpha 清单 → GeckoTerminal 链上 OHLCV | `node src/scripts/backfill.js stock --symbols ...` | 8 标的 / 多池合并 |
+| 币安 U 本位合约 | `perp` | `biz.asset_klines`（原库，只读物化） | `npm run db:materialize`（1h）+ `npm run db:mat15m`（15m） | 1h：60 标的 / 149.2 万根；15m：63 标的 / 50.7 万根 |
+| 币安现货 | `spot` | 币安现货 REST `/api/v3/klines` | `npm run deep:fill -- --market spot --interval 15m\|1h` | 1h：12 标的 / 36.8 万根；15m：12 标的 / 31.3 万根 |
+| 链上美股 | `stock` | Binance Alpha 清单 → GeckoTerminal 链上 OHLCV | `node src/scripts/backfill.js stock --symbols ...` | 8 标的 / 多池合并（**只有 1h**，链上源无 15m 粒度） |
+
+> **BTC/ETH 的 15m 已深回填到 2022-12-01**（perp + spot 各 136,923 根 / 1426 天），
+> 与 1h 起点严格对齐；其余标的 15m 覆盖最近 41 天（源表 / API 物化）。
+> 补数据的**两条路径成本差 400 倍**：源表物化是 `INSERT … SELECT`，两端同机走回环 GB/s，
+> 84 万行 61 秒；币安 API 回填跨机写 515 行/秒，84 万行要 27 分钟。
+> **凡源表能给的，一律走 `npm run db:mat15m`。**
 
 ### 链上美股的三个坑（都踩过并已解决）
 
@@ -217,12 +223,20 @@ npm run db:seed
 # 4. 预物化合约 K 线（首次约 1~3 分钟，之后增量几秒）
 npm run db:materialize
 
+# 4b. 物化合约 15m（源表里本来就有 530 标的 × 41 天，走 DB 内部 INSERT…SELECT，60 秒）
+npm run db:mat15m
+
 # 5. 回填现货 / 链上美股（可选，见上节）
 cd server
 node src/scripts/backfill.js spot-all --limit 12 --days 365
 node src/scripts/backfill.js stock --symbols NVDAON,SPYON,QQQON,CRCLON,MUON --days 60
 
-# 6. 构建前端 + 启动（单进程同时提供 API 与静态页面）
+# 6. 深回填 15m / 1h（币安 API 直连，跨机写 515 行/秒，耗时按量级估）
+#    BTC/ETH 的 15m 拉到 2022-12-01（各约 13.7 万根，~8 分钟/标的）
+npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market perp --interval 15m --since 2022-12-01
+npm run deep:fill -- --symbols BTCUSDT,ETHUSDT --market spot --interval 15m --since 2022-12-01
+
+# 7. 构建前端 + 启动（单进程同时提供 API 与静态页面）
 cd .. && npm run build && npm start
 # → http://<host>:8787
 ```

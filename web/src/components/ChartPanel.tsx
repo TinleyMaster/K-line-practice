@@ -852,7 +852,7 @@ export function ChartPanel({
                 className={`period-tab ${period === p.key ? 'active' : ''} ${p.disabled ? 'disabled' : ''}`}
                 onClick={() => !p.disabled && onPeriodChange(p.key)}
                 disabled={p.disabled}
-                title={p.disabled ? '该标的暂无 15m 数据（当前仅 BTC/ETH 覆盖）' : undefined}
+                title={p.disabled ? '该标的暂无 15m 数据（链上美股源只有 1h 粒度）' : undefined}
               >
                 <span className="period-main">{p.main}</span>
                 <span className="period-sub">{p.sub}</span>
@@ -898,7 +898,21 @@ export function ChartPanel({
       </div>
 
       {period === '15m' && bars15m.length === 0 && (
-        <div className="notice warn chart-note">该标的暂无 15m 数据（当前仅 BTC/ETH 覆盖 15m），已切回 1h。</div>
+        <div className="notice warn chart-note">
+          该标的暂无 15m 数据（链上美股源只有 1h 粒度），已切回 1h。
+        </div>
+      )}
+
+      {/*
+        15m 有数据，但**不覆盖当前练习起点** → 窗口为空。
+        典型场景：非 BTC/ETH 标的的 15m 只有 41 天，而练习起点被设到更早。
+        这时必须说明原因，否则用户看到一张空白图会以为功能坏了。
+      */}
+      {period === '15m' && bars15m.length > 0 && revealed15m.length === 0 && (
+        <div className="notice warn chart-note">
+          当前练习起点早于该标的的 15m 数据起点（{fmtTime(bars15m[0]?.time)}），
+          15m 视图没有可显示的区间 —— 把起点调晚，或切回 1h。
+        </div>
       )}
 
       <div className="chart-canvas-wrap">

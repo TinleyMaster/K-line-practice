@@ -164,7 +164,7 @@ klinesRouter.get('/_cache/stats', (req, res) => {
   res.json(getCacheStats());
 });
 
-/** DELETE /api/klines-cache/:symbol —— 手动清缓存 */
+/** DELETE /api/klines/_cache/:symbol —— 手动清缓存（market 可选，不传则清所有市场） */
 klinesRouter.delete('/_cache/:symbol', (req, res) => {
   clearBarCache(parseMarket(req.query.market), req.params.symbol);
   res.json({ ok: true, cleared: req.params.symbol });

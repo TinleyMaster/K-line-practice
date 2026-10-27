@@ -11,6 +11,8 @@
     "db:migrate": "node src/scripts/migrate.js",
     "db:seed": "node src/scripts/seed.js",
     "db:materialize": "node src/scripts/materialize.js",
+    "db:mat15m": "node src/scripts/materialize-15m.js",
+    "deep:fill": "node src/scripts/deep-fill.js",
     "bench:fetch": "node src/scripts/bench-fetch.js"
   },
   "dependencies": {

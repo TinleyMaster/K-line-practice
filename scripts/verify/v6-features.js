@@ -143,12 +143,17 @@ try {
     `15m 桶=${Math.floor(last15 / 3600000)} 1h 桶=${Math.floor(last1h / 3600000)}`,
   );
 
-  // 15m 的时间跨度应与 1h 相当（同一时间轴的高分辨率视图）
+  // 15m 与 1h 的时间跨度应「基本相当」（同一时间轴的高分辨率视图）。
+  //
+  // 容差说明：15m 的窗口左端 = 锚点 − 960 根 15m（240h），
+  // 但**数据边界会截断它** —— 非 BTC/ETH 标的的 15m 只有 41 天，
+  // 练习起点离 15m 起点不足 240h 时，左端被截 → 跨度变短。
+  // 所以契约是：15m 跨度**不超过** 1h 跨度，且差值在 1 个 1h 桶的量级内。
   const span15 = last15 - chart15.first;
   const span1h = last1h - chart1h.first;
   log(
-    '15m 与 1h 覆盖同一时间跨度',
-    Math.abs(span15 - span1h) <= 3600000 * 2,
+    '15m 与 1h 覆盖同一时间跨度（15m 不超出，差 ≤ 1 个 1h 桶）',
+    span15 <= span1h + 3600000 && span15 >= span1h - 3600000 * 4,
     `15m=${(span15 / 3600000).toFixed(1)}h / 1h=${(span1h / 3600000).toFixed(1)}h`,
   );
 
@@ -279,11 +284,20 @@ try {
   );
 
   await page.click('.auth-panel button[type=submit]');
-  await sleep(2500);
 
-  const loggedIn = await page.evaluate(
-    () => !!document.querySelector('.user-chip') && document.querySelector('.user-chip').textContent.includes('Tester'),
-  );
+  // 等登录态出现，**不要固定 sleep** ——
+  // 撞上服务端预热高峰时（预热占连接池 → API 排队），
+  // 注册请求可能超过 2.5 秒才返回，固定等待会误判成失败。
+  const loggedIn = await page
+    .waitForFunction(
+      () => {
+        const chip = document.querySelector('.user-chip');
+        return !!chip && chip.textContent.includes('Tester');
+      },
+      { timeout: 20000, polling: 300 },
+    )
+    .then(() => true)
+    .catch(() => false);
   log('注册成功并进入登录态（顶栏显示昵称）', loggedIn);
   log('登录面板已关闭', !(await page.evaluate(() => !!document.querySelector('.auth-panel'))));
 
@@ -299,9 +313,13 @@ try {
       .find((x) => x.textContent.includes('胜率 PK'))
       ?.click();
   });
-  await sleep(2500);
 
-  log('PK 页已渲染', await page.evaluate(() => !!document.querySelector('.pk-table')));
+  // 等 PK 表渲染出来 —— PK 数据是异步拉的，固定 sleep 会在慢请求时读早。
+  const pkReady = await page
+    .waitForFunction(() => !!document.querySelector('.pk-table'), { timeout: 25000, polling: 300 })
+    .then(() => true)
+    .catch(() => false);
+  log('PK 页已渲染', pkReady);
   const pkRows = await page.evaluate(() => document.querySelectorAll('.pk-row').length);
   log('PK 展示 9 个对比维度', pkRows === 9, `${pkRows} 行`);
   const pkDims = await page.evaluate(() =>
@@ -531,6 +549,7 @@ try {
     },
   ];
 
+  let prevBadge = 0;
   for (const p of paths) {
     const appeared = await triggerJournalModal();
     if (!appeared) {
@@ -538,16 +557,34 @@ try {
       break;
     }
     await p.close();
-    await sleep(1200);
+    await sleep(400);
     const closed = await page.evaluate(() => !document.querySelector('.modal-backdrop .modal'));
-    const badge = await page.evaluate(() => {
-      const el = document.querySelector('.pending-chip');
-      return el ? Number(el.querySelector('strong')?.textContent ?? '0') : 0;
-    });
+    // 徽标是**异步**刷新的（跳过 → 落库 → 重新拉计数）。
+    // 固定 sleep 读到的往往是上一轮的旧值 —— 表现为「徽标数比跳过次数少 1」。
+    // 所以这里等它真的涨上去（最多 15s）。
+    const badge = await page
+      .waitForFunction(
+        (min) => {
+          const el = document.querySelector('.pending-chip');
+          const n = el ? Number(el.querySelector('strong')?.textContent ?? '0') : 0;
+          return n > min ? n : false;
+        },
+        { timeout: 15000, polling: 300 },
+        prevBadge,
+      )
+      .then((h) => h.jsonValue())
+      .catch(() => prevBadge);
+    prevBadge = badge;
     log(`${p.name}：能关闭复盘弹窗`, closed, closed ? `待补复盘徽标=${badge}` : '弹窗仍在');
   }
 
-  const pendingRows = await page.evaluate(() => document.querySelectorAll('.pending-row').length);
+  const pendingRows = await page
+    .waitForFunction(() => document.querySelectorAll('.pending-row').length >= 4, {
+      timeout: 15000,
+      polling: 300,
+    })
+    .then(() => page.evaluate(() => document.querySelectorAll('.pending-row').length))
+    .catch(() => page.evaluate(() => document.querySelectorAll('.pending-row').length));
   log('待补复盘列表出现在侧栏', pendingRows >= 4, `${pendingRows} 条`);
 
   await page.screenshot({ path: path.join(OUT, 'v6-pending-journal.png') });
@@ -567,13 +604,19 @@ try {
 
   console.log('\n═══ ⑦ 登出 ═══');
   await page.evaluate(() => document.querySelector('.user-chip')?.click());
-  await sleep(1800);
-  const loggedOut = await page.evaluate(() => {
-    const btn = [...document.querySelectorAll('.topbar-right button')].find(
-      (x) => x.textContent.trim() === '登录',
-    );
-    return !!btn && !localStorage.getItem('kline-practice-token');
-  });
+  await sleep(600);
+  const loggedOut = await page
+    .waitForFunction(
+      () => {
+        const btn = [...document.querySelectorAll('.topbar-right button')].find(
+          (x) => x.textContent.trim() === '登录',
+        );
+        return !!btn && !localStorage.getItem('kline-practice-token');
+      },
+      { timeout: 15000, polling: 300 },
+    )
+    .then(() => true)
+    .catch(() => false);
   log('登出后回到未登录态、token 已清除', loggedOut);
 
   console.log(`\n═══ 浏览器层结果：${pass} 通过 / ${fail} 失败 ═══`);

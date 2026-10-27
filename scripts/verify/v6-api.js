@@ -336,5 +336,61 @@ const cross = await req(`/api/journal/${jid}`, {
 });
 log('跨账号补写被拒（404）', cross.status === 404, `HTTP ${cross.status}`);
 
+// ─────────────────────────────────────────────────────────────
+// ⑥ 15m 全市场覆盖（v6.2 数据补齐后的新契约）
+//
+// 契约：15m 不再是「只有 BTC/ETH 有」——
+//   · 合约白名单里每个标的都应有 15m
+//   · 现货白名单里每个标的都应有 15m
+//   · 15m 与 1h 在**重叠区**内必须桶对齐（每个 1h 桶 4 根 15m）
+//
+// 对齐率口径：只统计重叠区（c>0）的 1h 桶。
+//   分母若含「15m 起点之前的 1h 桶」（c=0），会造出并不存在的缺口 ——
+//   15m 的起点不在整点上时，1h 会多出几十个 c=0 的桶。踩过这个坑。
+// ─────────────────────────────────────────────────────────────
+console.log('\n═══ ⑥ 15m 全市场覆盖 + 桶对齐 ═══');
+
+const PERP_15M_PROBES = ['SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT'];
+const SPOT_15M_PROBES = ['SOLUSDT', 'XRPUSDT', 'DOGEUSDT'];
+
+let perpCovered = 0;
+for (const sym of PERP_15M_PROBES) {
+  const r = await req(`/api/klines?symbol=${sym}&market=perp&interval=both&limit=1200`);
+  const c15 = r.json?.count15m ?? 0;
+  if (c15 > 0) perpCovered++;
+  else console.log(`     · ${sym} 合约无 15m（count15m=0）`);
+}
+log(
+  `合约白名单抽样 ${PERP_15M_PROBES.length} 个标的全有 15m`,
+  perpCovered === PERP_15M_PROBES.length,
+  `${perpCovered}/${PERP_15M_PROBES.length}`,
+);
+
+let spotCovered = 0;
+for (const sym of SPOT_15M_PROBES) {
+  const r = await req(`/api/klines?symbol=${sym}&market=spot&interval=both&limit=1200`);
+  if ((r.json?.count15m ?? 0) > 0) spotCovered++;
+}
+log(
+  `现货白名单抽样 ${SPOT_15M_PROBES.length} 个标的全有 15m`,
+  spotCovered === SPOT_15M_PROBES.length,
+  `${spotCovered}/${SPOT_15M_PROBES.length}`,
+);
+
+// 桶对齐：抽 2 个合约标的，在重叠区内算对齐率
+for (const sym of ['ADAUSDT', 'DOGEUSDT']) {
+  const r = await req(`/api/klines?symbol=${sym}&market=perp&interval=both&limit=1200`);
+  const b1 = r.json?.bars1h ?? [];
+  const b15 = r.json?.bars15m ?? [];
+  const st = bucketCounts(b1, b15);
+  const overlap = st.full + st.partial;
+  const rate = overlap ? st.full / overlap : 0;
+  log(
+    `${sym} 15m↔1h 重叠区桶对齐率 ≥ 99%`,
+    rate >= 0.99,
+    `full=${st.full} partial=${st.partial} → ${(rate * 100).toFixed(2)}%`,
+  );
+}
+
 console.log(`\n═══ API 层结果：${pass} 通过 / ${fail} 失败 ═══`);
 if (fail > 0) process.exitCode = 1;

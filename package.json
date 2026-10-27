@@ -16,6 +16,8 @@
     "db:migrate": "npm run db:migrate -w server",
     "db:seed": "npm run db:seed -w server",
     "db:materialize": "npm run db:materialize -w server",
+    "db:mat15m": "npm run db:mat15m -w server",
+    "deep:fill": "npm run deep:fill -w server",
     "db:reset": "node server/src/scripts/reset-practice.js",
     "bench:fetch": "npm run bench:fetch -w server",
     "verify:api": "node scripts/verify/e2e-markets.js",
