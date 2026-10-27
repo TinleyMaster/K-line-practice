@@ -16,9 +16,19 @@ interface Props {
     setup: string | null;
     checklist: Record<string, boolean>;
   }) => Promise<{ ok: boolean; msg?: string }>;
+  /** 收起面板（回到折叠态） */
+  onClose: () => void;
 }
 
-export function TradePanel({ setups, entryPrice, equity, disabled, disabledReason, onOpen }: Props) {
+export function TradePanel({
+  setups,
+  entryPrice,
+  equity,
+  disabled,
+  disabledReason,
+  onOpen,
+  onClose,
+}: Props) {
   const enabledSetups = useMemo(() => setups.filter((s) => s.enabled), [setups]);
   const [side, setSide] = useState<TradeSide>('long');
   const [setupName, setSetupName] = useState<string>('');
@@ -83,7 +93,12 @@ export function TradePanel({ setups, entryPrice, equity, disabled, disabledReaso
     <div className="panel">
       <div className="panel-head">
         <h3>开仓</h3>
-        <span className="muted">现价 {fmtPrice(entryPrice)}</span>
+        <div className="panel-head-right">
+          <span className="muted">现价 {fmtPrice(entryPrice)}</span>
+          <button className="btn tiny ghost panel-collapse" onClick={onClose} title="收起开仓面板">
+            ✕
+          </button>
+        </div>
       </div>
 
       {disabled && disabledReason && <div className="notice warn">{disabledReason}</div>}

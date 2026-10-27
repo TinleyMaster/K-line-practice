@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import { derive4h, sliceRevealed } from '../engine/bars';
 import { checkExit, closeTrade, unrealizedPnl } from '../engine/trading';
+import { DEFAULT_1H, DEFAULT_4H, normalizeSelection } from '../engine/indicators';
 
 export interface EquityPoint {
   time: number;
@@ -47,6 +48,18 @@ interface PracticeState {
   startCursor: number;
   playing: boolean;
   speed: number;
+  /** 练习起点模式：auto = 自动推导，manual = 用户指定 */
+  startMode: 'auto' | 'manual';
+  /** 用户指定的起点时间戳（epoch ms），manual 模式下有效 */
+  manualStartTime: number | null;
+
+  /* 指标配置 */
+  indicators4h: string[];
+  indicators1h: string[];
+
+  /* UI */
+  /** 开仓面板是否展开 */
+  tradePanelOpen: boolean;
 
   /* 交易 */
   openTrade: OpenTrade | null;
@@ -75,6 +88,12 @@ interface PracticeState {
   jump4h: () => void;
   play: () => void;
   pause: () => void;
+  /** 设置练习起点（时间戳），null 表示回到自动模式 */
+  setStartTime: (time: number | null) => void;
+  /** 设置某周期的指标选择 */
+  setIndicators: (period: '4h' | '1h', names: string[]) => void;
+  /** 展开/收起开仓面板 */
+  setTradePanelOpen: (open: boolean) => void;
   openPosition: (draft: TradeDraft) => Promise<{ ok: boolean; msg?: string }>;
   closePosition: (reason: ClosedTrade['exitReason'], price?: number) => Promise<void>;
   saveJournal: (payload: {
@@ -87,6 +106,45 @@ interface PracticeState {
 }
 
 const DEFAULT_EQUITY = 10000;
+
+/**
+ * 起点推导所需的最小 4h 上下文根数。
+ *
+ * 4h 是看趋势的周期 —— 起点之前至少要有这么多根已完成的 4h，
+ * 否则用户看到的第一屏没有趋势依据，「只做顺着 4h 方向的单」这条规则就落不了地。
+ * 120 根 4h ≈ 480 根 1h ≈ 20 天。
+ */
+export const MIN_4H_CONTEXT = 120;
+
+/**
+ * 计算练习起点索引。
+ *
+ * @param bars1h    全部 1h K 线
+ * @param manualTime 用户指定的时间戳（epoch ms），null / undefined = 自动
+ * @returns 起点在 bars1h 中的索引
+ */
+export function resolveStartIndex(bars1h: Bar[], manualTime?: number | null): number {
+  if (!bars1h.length) return -1;
+
+  // 自动模式：留出足够的 4h 趋势上下文，其余作为「未来」供回放
+  if (!manualTime) {
+    return Math.min(MIN_4H_CONTEXT * 4, Math.max(MIN_4H_CONTEXT, Math.floor(bars1h.length * 0.4)));
+  }
+
+  // 手动模式：定位到不晚于指定时间的最后一根 1h
+  let idx = bars1h.findIndex((b) => b.time > manualTime) - 1;
+  if (idx < 0) idx = bars1h.length - 1;
+
+  // 约束 1：起点之后至少要留 60 根 1h 作为「未来」，否则没东西可回放
+  const maxIdx = bars1h.length - 60;
+  if (idx > maxIdx) idx = maxIdx;
+
+  // 约束 2：起点之前至少要有 MIN_4H_CONTEXT 根 4h 上下文
+  const minIdx = Math.min(MIN_4H_CONTEXT * 4, bars1h.length - 1);
+  if (idx < minIdx) idx = minIdx;
+
+  return Math.max(0, idx);
+}
 
 export const usePracticeStore = create<PracticeState>()(
   persist(
@@ -105,6 +163,13 @@ export const usePracticeStore = create<PracticeState>()(
       startCursor: -1,
       playing: false,
       speed: 1200,
+      startMode: 'auto',
+      manualStartTime: null,
+
+      indicators4h: DEFAULT_4H,
+      indicators1h: DEFAULT_1H,
+
+      tradePanelOpen: false,
 
       openTrade: null,
       closedTrades: [],
@@ -167,8 +232,9 @@ export const usePracticeStore = create<PracticeState>()(
           const data = await api.klines(symbol, m, 1200);
           const bars1h = data.bars1h ?? [];
           const bars4h = data.bars4h ?? derive4h(bars1h);
-          // 练习起点：留出足够的 4h 趋势上下文（≥120根 4h ≈ 480根 1h），其余作为「未来」供回放
-          const start = Math.min(480, Math.max(120, Math.floor(bars1h.length * 0.4)));
+          // 练习起点：用户指定优先（保留其偏好），否则自动推导；
+          // 起点前保证有足够的 4h 趋势上下文（≥120 根 4h）
+          const start = resolveStartIndex(bars1h, get().manualStartTime);
           set({
             symbol,
             market: m,
@@ -194,6 +260,57 @@ export const usePracticeStore = create<PracticeState>()(
       },
 
       setSpeed: (ms) => set({ speed: ms }),
+
+      setStartTime: (time) => {
+        const state = get();
+        if (!state.bars1h.length) return;
+        if (time === null) {
+          // 回到自动模式
+          const idx = resolveStartIndex(state.bars1h, null);
+          set({
+            startMode: 'auto',
+            manualStartTime: null,
+            cursor: idx,
+            startCursor: idx,
+            openTrade: null,
+            closedTrades: [],
+            equity: DEFAULT_EQUITY,
+            equityStart: DEFAULT_EQUITY,
+            peakEquity: DEFAULT_EQUITY,
+            maxDrawdown: 0,
+            equityCurve: [],
+            pendingJournal: null,
+            sessionId: null,
+            playing: false,
+          });
+          return;
+        }
+        const idx = resolveStartIndex(state.bars1h, time);
+        set({
+          startMode: 'manual',
+          manualStartTime: time,
+          cursor: idx,
+          startCursor: idx,
+          openTrade: null,
+          closedTrades: [],
+          equity: DEFAULT_EQUITY,
+          equityStart: DEFAULT_EQUITY,
+          peakEquity: DEFAULT_EQUITY,
+          maxDrawdown: 0,
+          equityCurve: [],
+          pendingJournal: null,
+          sessionId: null,
+          playing: false,
+        });
+      },
+
+      setIndicators: (period, names) => {
+        const normalized = normalizeSelection(names);
+        if (period === '4h') set({ indicators4h: normalized });
+        else set({ indicators1h: normalized });
+      },
+
+      setTradePanelOpen: (open) => set({ tradePanelOpen: open }),
 
       startReplay: async (fromIndex) => {
         const { bars1h, symbol, market } = get();
@@ -472,6 +589,11 @@ export const usePracticeStore = create<PracticeState>()(
         maxDrawdown: s.maxDrawdown,
         equityCurve: s.equityCurve,
         sessionId: s.sessionId,
+        startMode: s.startMode,
+        manualStartTime: s.manualStartTime,
+        indicators4h: s.indicators4h,
+        indicators1h: s.indicators1h,
+        tradePanelOpen: s.tradePanelOpen,
       }),
     },
   ),

@@ -81,9 +81,19 @@ async function runCase(browser, c) {
       ffillNotice: document.querySelector('.notice.info')?.textContent?.trim() || null,
     }));
 
+    // 0. 展开开仓面板（v3 起默认折叠，只留一个「开仓」按钮）
+    const hasTrigger = await page.$('.trade-open-trigger');
+    if (hasTrigger) {
+      await hasTrigger.click();
+      await sleep(600);
+    }
+    const panelOpened = await page.evaluate(() => !!document.querySelector('.side-area select'));
+    if (!panelOpened) throw new Error('开仓面板未展开');
+
     // 1. 选设置
     const setupValue = await page.evaluate(() => {
       const s = document.querySelector('.side-area select');
+      if (!s) return null;
       const opt = [...s.options].find((o) => o.value);
       if (!opt) return null;
       const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;

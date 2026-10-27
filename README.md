@@ -238,8 +238,42 @@ npm run dev          # 后端 :8787 + 前端 :5173（/api 自动代理）
 - 游标 `cursor` 以 **1h** 为单位推进，`cursor+1` 之前的数据**根本不下发到图表**。
 - 4h 图同步揭示：只有当一根 4h 的 4 根 1h 全部出现，它才成型；期间显示的是**形成中**的 4h 蜡烛（原地更新，不新增柱）。
 - 支持：播放/暂停、单步、跳下一根 4h、按根号跳转、速度调节（0.5s~4s）。
-- 练习起点自动留出 ≥120 根 4h 的趋势上下文，其余作为「未来」供练习。
 - 切换标的/市场会**重置**游标、账户与持仓，不会带着上一个标的的进度。
+
+### 练习起点（可自定义）
+
+默认自动：留出 ≥120 根 4h 趋势上下文（≈480 根 1h ≈ 20 天），其余作为「未来」。
+
+也可手动指定，两种方式：
+- **时间点**：`<input type="datetime-local">` 选具体时刻，自动定位到不晚于该时刻的最后一根 1h；
+- **相对区间**：「往前 1 天 / 1 周 / 1 月 / 3 月」快捷按钮（基于数据末端倒推，反复点不漂移）。
+
+两条硬约束（自动兜底，不会让你选出一个没法练的起点）：
+- 起点前保留 **≥120 根 4h** —— 没有趋势依据，「只做顺着 4h 方向的单」就落不了地；
+- 起点后保留 **≥60 根 1h** —— 否则没有「未来」可回放。
+
+选择「恢复自动」即可回到推导模式。起点模式与时间戳会持久化。
+
+### 开仓面板（默认折叠）
+
+侧栏默认只显示一个「🛒 开仓」按钮，点击才展开完整表单；展开后右上角 `✕` 收起。
+持仓中自动切到持仓面板（收起态优先给图表让出空间）。
+折叠态下侧栏高度从 ~660px 降到 **66px**。
+
+### 技术指标（自选，27 个内置全白嫖）
+
+klinecharts v10 内置 27 个指标，本项目**不自己写公式**，直接调 `createIndicator`。
+
+| 分组 | 指标 |
+|---|---|
+| **主图叠加**（画在 K 线上，不占额外高度） | MA / EMA / SMA / BOLL / DMA / AVP / BBI / SAR / TRIX / BIAS |
+| **独立副图**（自动开新窗格） | VOL / RSI / MACD / KDJ / CCI / WR / VR / PSY / ROC / OBV / BRAR / CR / DMI / EMV / MTM / PVT / AO / TRIX / BIAS |
+
+- **4h 与 1h 各自独立配置** —— 4h 看趋势常配 BOLL + 慢均线，1h 看入场常配 MACD + RSI，
+  用途不同不该共用一套（符合「4h 看趋势、1h 入场」的分工）。
+- **独立副图最多常驻 2 个**：多了会把主图挤扁（矮屏尤其明显），超出的选项在 UI 里置灰。
+- 副图高度按容器高度**自适应分配**（klinecharts 默认给副图固定 100px，矮屏下会把主图压成一条缝）。
+- 配置持久化到本地（`localStorage.kline-practice-v1`）。
 
 ### 开仓前置检查表（Checklist）
 
@@ -320,13 +354,13 @@ k线研究所/
 │   │   └── scripts/         # init-db / seed / materialize / backfill / bench / reset-practice
 ├── web/
 │   └── src/
-│       ├── engine/          # bars.ts（派生） trading.ts（R 倍数）
-│       ├── hooks/           # useMediaQuery（响应式断点）
+│       ├── engine/          # bars.ts（派生） trading.ts（R 倍数） indicators.ts（27 指标注册表） popup.ts
+│       ├── hooks/           # useMediaQuery（响应式断点） usePopupPosition（弹窗视口约束）
 │       ├── store/           # zustand 回放状态机
-│       ├── components/      # DualChart / TradePanel / JournalModal / StatsView …
+│       ├── components/      # DualChart / TradePanel / JournalModal / StatsView / IndicatorPicker / StartTimePicker …
 │       └── styles.css       # 深色主题（涨红跌绿）+ 移动端适配
 ├── scripts/
-│   └── verify/              # 三段式复验脚本（API 闭环 / 浏览器闭环 / 多视口）
+│   └── verify/              # 三段式复验脚本（API / 浏览器 / 多视口 / v3 功能 / 弹窗可达性）
 └── deploy/
     ├── kline-practice.service   # systemd
     └── start.sh
@@ -335,13 +369,15 @@ k线研究所/
 ### 验证脚本（可复用）
 
 ```bash
-npm run verify          # 依次跑三个：API 闭环 → 浏览器闭环 → 多视口
+npm run verify          # 一键跑全套五个
 npm run verify:api      # API 层：三市场 × 12 项 = 36 项
 npm run verify:flow     # 浏览器层：真实点击开仓/平仓/复盘 × 5 场景
 npm run verify:viewport # 布局层：5 视口 × 3 市场 = 15 组
+npm run verify:v3       # v3 功能：面板折叠 / 起点设置 / 指标自选 = 29 项
+npm run verify:popup    # 弹窗可达性：5 视口 × 2 弹窗 = 15 项
 ```
 
-详见 `scripts/verify/README.md`（含前置依赖与两个已踩过的坑）。
+详见 `scripts/verify/README.md`（含前置依赖与三个已踩过的坑）。
 
 ---
 

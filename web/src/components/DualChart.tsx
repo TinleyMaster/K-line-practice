@@ -11,9 +11,9 @@ import {
 import type { Bar, OpenTrade } from '../types';
 import { derive4h, pricePrecision } from '../engine/bars';
 import { BREAKPOINTS, useMediaQuery } from '../hooks/useMediaQuery';
+import { getIndicatorSpec, splitByGroup, type IndicatorSpec } from '../engine/indicators';
 
 const CANDLE_PANE = 'candle_pane';
-const VOLUME_PANE = 'volume_pane';
 const TRADE_GROUP = 'trade-lines';
 
 const DARK_STYLES: DeepPartial<Styles> = {
@@ -139,20 +139,67 @@ function toKLineData(bar: Bar): KLineData {
 }
 
 /**
- * 副图（VOL）高度自适应。
+ * 副图高度分配。
  *
- * klinecharts 给副图分配的默认高度是固定 100px（minHeight 30），
+ * klinecharts 给副图的默认高度是固定 100px（minHeight 30），
  * 主图（candle_pane）吸收剩余空间。在矮屏（手机横放，图表容器仅 200px）
- * 副图会吃掉一半，蜡烛主图被压成一条缝，完全没法看形态。
+ * 副图会吃掉一半，蜡烛主图被压成一条缝，完全没法看。
  *
- * 这里按容器高度给副图分配 26%，夹在 [48, 100]，
+ * 这里按容器高度给每个副图按权重分配，夹在 [48, 100]，
  * 容器越大副图绝对值封顶在 100px（保持桌面观感），越小则按比例收缩。
+ * 主图至少保留 40% 高度。
  */
-function applyPaneHeights(chart: Chart, container: HTMLElement) {
+function applyPaneHeights(chart: Chart, container: HTMLElement, paneIds: string[], weights: number[]) {
   const h = container.clientHeight;
-  if (!h) return;
-  const volH = Math.round(Math.min(100, Math.max(48, h * 0.26)));
-  chart.setPaneOptions({ id: VOLUME_PANE, height: volH, minHeight: 40 });
+  if (!h || !paneIds.length) return;
+
+  // 主图至少留 40%，剩余按权重分给副图
+  const available = Math.max(0, h * 0.6);
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+
+  paneIds.forEach((paneId, i) => {
+    const share = (available * (weights[i] ?? 0.3)) / totalWeight;
+    const paneH = Math.round(Math.min(100, Math.max(48, share)));
+    chart.setPaneOptions({ id: paneId, height: paneH, minHeight: 40 });
+  });
+}
+
+/** 为图表实例装载一组指标；先清掉旧的，再按分组重建 */
+function applyIndicators(
+  chart: Chart,
+  specs: IndicatorSpec[],
+  idPrefix: string,
+): { paneIds: string[]; weights: number[] } {
+  // 清掉本实例此前创建的所有指标
+  for (const ind of chart.getIndicators()) {
+    if (ind.id?.startsWith(idPrefix)) chart.removeIndicator({ id: ind.id });
+  }
+
+  const { overlay, panes } = splitByGroup(specs.map((s) => s.name));
+
+  for (const spec of overlay) {
+    chart.createIndicator({
+      name: spec.name,
+      id: `${idPrefix}_${spec.name}`,
+      paneId: CANDLE_PANE,
+      calcParams: spec.calcParams,
+    });
+  }
+
+  const paneIds: string[] = [];
+  const weights: number[] = [];
+  for (const spec of panes) {
+    const paneId = `${idPrefix}_pane_${spec.name}`;
+    chart.createIndicator({
+      name: spec.name,
+      id: `${idPrefix}_${spec.name}`,
+      paneId,
+      calcParams: spec.calcParams,
+    });
+    paneIds.push(paneId);
+    weights.push(spec.weight ?? 0.28);
+  }
+  return { paneIds, weights };
 }
 
 /**
@@ -184,9 +231,20 @@ interface Props {
   cursor: number;
   openTrade: OpenTrade | null;
   chartHeight?: number;
+  /** 4h 周期启用的指标名列表 */
+  indicators4h: string[];
+  /** 1h 周期启用的指标名列表 */
+  indicators1h: string[];
 }
 
-export function DualChart({ symbol, bars1h, cursor, openTrade }: Props) {
+export function DualChart({
+  symbol,
+  bars1h,
+  cursor,
+  openTrade,
+  indicators4h,
+  indicators1h,
+}: Props) {
   const topRef = useRef<HTMLDivElement>(null);
   const botRef = useRef<HTMLDivElement>(null);
   const chart4hRef = useRef<Chart | null>(null);
@@ -194,6 +252,14 @@ export function DualChart({ symbol, bars1h, cursor, openTrade }: Props) {
   const feed4hRef = useRef<Feed | null>(null);
   const feed1hRef = useRef<Feed | null>(null);
   const loadedSymbolRef = useRef<string>('');
+  // 记录当前已装载的指标签名，用于判断是否需要重建
+  const applied4hRef = useRef<string>('');
+  const applied1hRef = useRef<string>('');
+  // 当前常驻副图的 paneId 与权重（供 ResizeObserver 重新分配高度）
+  const paneIds4hRef = useRef<string[]>([]);
+  const paneIds1hRef = useRef<string[]>([]);
+  const weights4hRef = useRef<number[]>([]);
+  const weights1hRef = useRef<number[]>([]);
 
   // 窄屏（手机竖屏 / 矮屏横屏）改为单图 + Tab 切换，iPad 及以上保持双图
   const isNarrow = useMediaQuery(BREAKPOINTS.singleChart);
@@ -216,23 +282,14 @@ export function DualChart({ symbol, bars1h, cursor, openTrade }: Props) {
     chart4hRef.current = c4;
     chart1hRef.current = c1;
 
-    c4.createIndicator({ name: 'MA', paneId: CANDLE_PANE, id: 'ma4h', calcParams: [20, 60] });
-    c4.createIndicator({ name: 'VOL', paneId: VOLUME_PANE, id: 'vol4h' });
-    c1.createIndicator({ name: 'MA', paneId: CANDLE_PANE, id: 'ma1h', calcParams: [5, 20, 60] });
-    c1.createIndicator({ name: 'VOL', paneId: VOLUME_PANE, id: 'vol1h' });
-
     c4.setOffsetRightDistance(60);
     c1.setOffsetRightDistance(60);
-
-    // 副图高度随容器自适应（必须在指标创建之后，副图才会存在）
-    applyPaneHeights(c4, topRef.current);
-    applyPaneHeights(c1, botRef.current);
 
     const ro = new ResizeObserver(() => {
       c4.resize();
       c1.resize();
-      applyPaneHeights(c4, topRef.current!);
-      applyPaneHeights(c1, botRef.current!);
+      applyPaneHeights(c4, topRef.current!, paneIds4hRef.current, weights4hRef.current);
+      applyPaneHeights(c1, botRef.current!, paneIds1hRef.current, weights1hRef.current);
     });
     ro.observe(topRef.current);
     ro.observe(botRef.current);
@@ -245,6 +302,38 @@ export function DualChart({ symbol, bars1h, cursor, openTrade }: Props) {
       chart1hRef.current = null;
     };
   }, []);
+
+  // ---------- 指标装载：随配置变化重建 ----------
+  useEffect(() => {
+    const c4 = chart4hRef.current;
+    const c1 = chart1hRef.current;
+    if (!c4 || !c1) return;
+
+    const sig4 = indicators4h.join(',');
+    const sig1 = indicators1h.join(',');
+
+    if (sig4 !== applied4hRef.current) {
+      const specs4 = indicators4h
+        .map((n) => getIndicatorSpec(n))
+        .filter((s): s is IndicatorSpec => !!s);
+      const r4 = applyIndicators(c4, specs4, 'i4h');
+      paneIds4hRef.current = r4.paneIds;
+      weights4hRef.current = r4.weights;
+      applied4hRef.current = sig4;
+      applyPaneHeights(c4, topRef.current!, r4.paneIds, r4.weights);
+    }
+
+    if (sig1 !== applied1hRef.current) {
+      const specs1 = indicators1h
+        .map((n) => getIndicatorSpec(n))
+        .filter((s): s is IndicatorSpec => !!s);
+      const r1 = applyIndicators(c1, specs1, 'i1h');
+      paneIds1hRef.current = r1.paneIds;
+      weights1hRef.current = r1.weights;
+      applied1hRef.current = sig1;
+      applyPaneHeights(c1, botRef.current!, r1.paneIds, r1.weights);
+    }
+  }, [indicators4h, indicators1h]);
 
   // ---------- 换标的 / 换数据集：重建 feed 并 init ----------
   useEffect(() => {

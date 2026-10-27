@@ -1548,3 +1548,361 @@ textarea {
     color: #000;
   }
 }
+
+/* ============================================================
+   v3 增量：开仓面板折叠 / 起点设置 / 技术指标选择器
+   ============================================================ */
+
+/* ---- 开仓面板折叠触发按钮 ---- */
+.trade-open-trigger {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 56px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
+.trade-trigger-note {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.trade-open-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.panel-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-collapse {
+  padding: 2px 7px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ---- 工具行分隔 ---- */
+.jump-row {
+  flex-wrap: wrap;
+}
+
+.jump-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-strong);
+  margin: 0 4px;
+}
+
+/* ---- 起点选择器 ---- */
+.start-picker,
+.ind-picker {
+  position: relative;
+  display: inline-block;
+}
+
+.start-trigger,
+.ind-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: 5px 10px;
+  min-height: 30px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+
+.start-trigger:hover,
+.ind-trigger:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: #222839;
+}
+
+.start-trigger.active,
+.ind-trigger.active {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.start-trigger.manual {
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.start-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.start-badge {
+  font-style: normal;
+  font-size: 10px;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+.ind-trigger-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---- 弹出面板（起点 / 指标共用）----
+   坐标由 usePopupPosition 用 JS 实时计算（fixed），
+   保证面板永远完整落在视口内 —— 纯 CSS 定位在桌面/横屏会掉出屏幕。 */
+.start-panel,
+.ind-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  min-width: 320px;
+  max-width: 92vw;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 12px;
+}
+
+.start-panel {
+  min-width: 340px;
+}
+
+.start-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.start-row > .muted {
+  flex: 0 0 60px;
+  font-size: 12px;
+}
+
+.start-row .input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.start-quick {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.start-range {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.start-hint {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ---- 指标选择器 ---- */
+.ind-panel {
+  min-width: 400px;
+}
+
+.ind-period {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ind-period-tab {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.ind-period-tab.active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: var(--accent);
+  color: #93c5fd;
+}
+
+.ind-group {
+  margin-bottom: 12px;
+}
+
+.ind-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ind-group-title .muted {
+  font-weight: 400;
+  font-size: 10px;
+}
+
+.ind-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
+  gap: 4px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.ind-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  border: 1px solid transparent;
+  min-height: 30px;
+}
+
+.ind-item:hover {
+  background: var(--bg-panel-2);
+}
+
+.ind-item.on {
+  background: rgba(59, 130, 246, 0.13);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.ind-item.limited {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ind-item input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  accent-color: #3b82f6;
+}
+
+.ind-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ind-code {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+.ind-foot {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+/* ---- 触摸设备：面板控件放大到 44px ---- */
+@media (any-pointer: coarse) {
+  .start-trigger,
+  .ind-trigger {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .ind-period-tab {
+    min-height: 40px;
+  }
+
+  .ind-item {
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .ind-item input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+  }
+
+  .ind-list {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    max-height: 240px;
+  }
+
+  .ind-foot .btn.tiny {
+    min-height: 40px;
+  }
+
+  .trade-open-trigger {
+    min-height: 60px;
+  }
+}
+
+/* ---- 窄屏：弹出面板铺满宽度，避免超出视口 ---- */
+@media (max-width: 767px) {
+  .start-panel,
+  .ind-panel {
+    min-width: 0;
+    max-width: none;
+    max-height: 72vh;
+  }
+
+  .ind-list {
+    max-height: none;
+  }
+}
+
+/* ---- 弹窗打开时：吸底回放条降级，避免盖住弹窗底部 ---- */
+body.popup-open .replay-controls {
+  z-index: 40; /* 低于弹窗的 60 */
+}
+
+body.popup-open .start-panel,
+body.popup-open .ind-panel {
+  z-index: 70;
+}
+
+/* 窄屏下弹窗直接盖在回放条上方，回放条淡出让位 */
+@media (max-width: 767px) {
+  body.popup-open .replay-controls {
+    opacity: 0.25;
+    pointer-events: none;
+  }
+}

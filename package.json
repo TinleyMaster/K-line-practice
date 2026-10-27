@@ -20,7 +20,9 @@
     "verify:api": "node scripts/verify/e2e-markets.js",
     "verify:flow": "node scripts/verify/flow2.js",
     "verify:viewport": "node scripts/verify/viewports.js",
-    "verify": "npm run verify:api && npm run verify:flow && npm run verify:viewport"
+    "verify:v3": "node scripts/verify/v3-features.js",
+    "verify:popup": "node scripts/verify/popup-reachability.js",
+    "verify": "npm run verify:api && npm run verify:flow && npm run verify:viewport && npm run verify:v3 && npm run verify:popup"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

@@ -8,14 +8,19 @@ import { PositionPanel } from './components/PositionPanel';
 import { JournalModal } from './components/JournalModal';
 import { StatsView } from './components/StatsView';
 import { SetupLibrary } from './components/SetupLibrary';
+import { IndicatorPicker } from './components/IndicatorPicker';
+import { StartTimePicker } from './components/StartTimePicker';
 import { fmtPrice, fmtTime } from './engine/bars';
 
 type View = 'practice' | 'stats' | 'setups';
+/** 当前打开的弹出面板（互斥 —— 两个 fixed 弹窗同时存在会互相盖住） */
+type Popup = 'start' | 'indicators' | null;
 
 export default function App() {
   const store = usePracticeStore();
   const [view, setView] = useState<View>('practice');
   const [statsKey, setStatsKey] = useState(0);
+  const [popup, setPopup] = useState<Popup>(null);
 
   useEffect(() => {
     void store.bootstrap();
@@ -131,6 +136,8 @@ export default function App() {
                   bars1h={store.bars1h}
                   cursor={store.cursor}
                   openTrade={store.openTrade}
+                  indicators4h={store.indicators4h}
+                  indicators1h={store.indicators1h}
                 />
                 <ReplayControls
                   playing={store.playing}
@@ -145,6 +152,22 @@ export default function App() {
                   onReset={store.resetReplay}
                 />
                 <div className="jump-row">
+                  <StartTimePicker
+                    bars1h={store.bars1h}
+                    cursor={store.cursor}
+                    isManual={store.startMode === 'manual'}
+                    onSet={(t) => store.setStartTime(t)}
+                    open={popup === 'start'}
+                    onOpenChange={(o) => setPopup(o ? 'start' : null)}
+                  />
+                  <IndicatorPicker
+                    value4h={store.indicators4h}
+                    value1h={store.indicators1h}
+                    onChange={(p, names) => store.setIndicators(p, names)}
+                    open={popup === 'indicators'}
+                    onOpenChange={(o) => setPopup(o ? 'indicators' : null)}
+                  />
+                  <span className="jump-sep" />
                   <span className="muted">跳到第</span>
                   <input
                     className="input tiny-input"
@@ -173,7 +196,7 @@ export default function App() {
                 equityCurve={store.equityCurve}
                 onClose={() => void store.closePosition('manual')}
               />
-            ) : (
+            ) : store.tradePanelOpen ? (
               <TradePanel
                 setups={store.setups}
                 entryPrice={currentPrice}
@@ -181,7 +204,18 @@ export default function App() {
                 disabled={!canTrade}
                 disabledReason={tradeDisabledReason}
                 onOpen={store.openPosition}
+                onClose={() => store.setTradePanelOpen(false)}
               />
+            ) : (
+              <button
+                className="btn primary wide trade-open-trigger"
+                onClick={() => store.setTradePanelOpen(true)}
+                disabled={!canTrade}
+                title={tradeDisabledReason ?? '打开开仓面板'}
+              >
+                🛒 开仓
+                {tradeDisabledReason && <span className="trade-trigger-note">{tradeDisabledReason}</span>}
+              </button>
             )}
 
             {store.closedTrades.length > 0 && !store.openTrade && (
