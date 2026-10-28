@@ -1618,3 +1618,71 @@ K 线行情数据**未触碰**（651 MB / 340 万行原样）。
 ```
 
 全量回归：**292 项全绿**（278 + v6-fixes 14）
+
+---
+
+## 21. v6.4：起点之前的历史 K 线无限左加载（2026-10-28 · 用户需求）
+
+### 21.1 需求
+
+> 「缩放图表的时候能无限加载 k 线，【起点】时间以前的 k 线可以在滑动和缩放图表的时候一直加载出来」
+
+即：滑动 / 缩放图表到左边缘时，起点之前的 K 线应**持续从后端按需拉取并前插**，可一直回溯到该标的该周期的物理最早一根。
+
+### 21.2 关键机制（在 klinecharts v10 源码里确认，方向与直觉相反）
+
+klinecharts 的 `DataLoader.getBars` 有四种 `type`，但**方向命名与直觉相反**：
+
+| type | 触发时机 | 期望回传 | klinecharts 内部动作 |
+|---|---|---|---|
+| `init` | 初始装载 | 已揭示切片 | `_dataList = data` |
+| `forward` | **左边缘**（`from === 0`） | **更老的** K 线 | `data.concat(_dataList)` **前插到头部** + 自动维持滚动位置 |
+| `backward` | **右边缘**（`to === totalBarCount`） | **更新的**（未来）K 线 | `_dataList = _dataList.concat(data)` 追加到尾部 |
+| `update` | 实时末根更新 | —— | —— |
+
+所以「向左无限加载历史」的唯一钩子是 **`forward`**（不是 `backward`）。右边缘的 `backward` 本产品**一律返回 `[]` 且 `more=false`** —— 因为右端锚定游标（绝不泄露未来）。
+
+`init` 回调**必须**带 `more: { forward: true, backward: false }`，否则 `_dataLoadMore.forward` 为 false，`forward` 永远不触发。
+
+### 21.3 架构分界（历史不进引擎）
+
+- 历史 K 线**纯展示用**，只驻留在 `ChartPanel` 组件的 `hist1h` / `hist15` 状态（及镜像 ref）与图表的 `feed.current` 镜像里。
+- **绝不进 store / 引擎**：引擎只需要 `cursor` 之后那段练习区（回放 / 权益 / 落库都只看它）。历史不影响任何引擎计算。
+- `revealed1h / revealed15m / revealed4h` 已把历史并入「已揭示切片」（`[...hist, ...bars1h.slice(0, cursor+1)]`），所以游标推进的 `syncFeed`、持仓线、详情条都天然带上历史，无需另写路径。
+
+### 21.4 后端
+
+- 新增 `getHistoryBefore(symbol, { market, interval, beforeTime, limit })`（`server/src/services/klineService.js`）：返回 `open_time < beforeTime` 的最近 `limit` 根，按时间升序，带 `exhausted` 标记。
+- 关键坑：`open_time` 是 `timestamptz`，`beforeTime` 是 epoch ms → **必须转成 `Date` 再传参**，否则 pg 把整数当时间戳判越界（已踩）。
+- 新路由 `GET /api/klines/:symbol/history?market=&interval=1h|15m&before=<epochMs>&limit=`（interval 仅接受 1h / 15m / 4h；4h 不单独存，由 1h 派生）。
+- 前端 `api.klinesHistory(...)` 封装；`HISTORY_CHUNK = 500`。
+
+### 21.5 前端的同步防抖（syncFeed 加固）
+
+`forward` 前插后 klinecharts 已维护好滚动位置，但 React 状态刷新会触发 `syncFeed` 重算 `activeBars`。为避免 `syncFeed` 误判「head 变化」而 `resetData` 跳屏，做了两道保险：
+
+1. `getBars` 的 `forward` 分支在 `callback` 前同步把 `feed.current` 镜像更新成「历史 + 已揭示」完整序列，使其与即将重算的 `activeBars` 对齐。
+2. `syncFeed` 新增两条保护：镜像比 `target` 长且 `target` 是其尾子集（刚拉到历史但 state 未刷新的瞬态竞态）→ 只更新镜像；`target` 比 `feed.current` 长且**首根变早**（历史前插）→ 同样只更新镜像、**禁止 resetData**。
+
+### 21.6 验证：新增 `scripts/verify/v6-infinite.js`（11 项，全绿）
+
+用 `scrollToDataIndex(0, 0)` 把视图拉到最左边缘触发 `forward`（注：本版本 headless 下 `scrollByDistance` 失效，改用 `scrollToDataIndex`）。结果：
+
+```
+① 初始 481 根 · BTCUSDT/perp/1h，右端 = cursorMs（不泄露未来） ✅
+② 1h 左加载 +2500 根，首根 2026-09-08 → 2026-05-27（更老）✅，右端不变 ✅
+⑤ 15m 左加载 +2000 根 ✅ ④ 4h 左加载 +500 根（派生）✅
+运行期无 console / pageerror ✅
+```
+
+三档右端都不泄露未来、左端随加载持续变早 → 无限左加载成立。
+
+### 21.7 改动文件
+
+- `server/src/services/klineService.js`：新增 `getHistoryBefore`（含 `Date` 转换 + 分桶缓存）
+- `server/src/routes/klines.js`：新增 `GET /:symbol/history`
+- `web/src/api.ts`：新增 `klinesHistory`
+- `web/src/components/ChartPanel.tsx`：`createFeed` 重写（forward 历史前插 + backward/update 拒未来）、`syncFeed` 加固、feed-init effect 清历史 + 带 market 的 loadedKey、补 `bars1hRef/bars15mRef/window15mToRef/loadingHistRef`
+- `web/src/App.tsx`：`ChartPanel` 补 `market` 透传
+- `scripts/verify/v6-infinite.js`：新验证脚本；`package.json` 接入 `verify`
+

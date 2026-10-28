@@ -6,6 +6,7 @@ import {
   ensureMaterialized,
   getBars,
   get1h,
+  getHistoryBefore,
   getCacheStats,
   clearBarCache,
   backfillExternal,
@@ -141,6 +142,40 @@ klinesRouter.post('/backfill', async (req, res) => {
     });
     clearBarCache(m, String(symbol).trim());
     res.json({ ok: true, market: m, symbol, ...out });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/klines/:symbol/history?market=perp&interval=1h|15m&before=<epochMs>&limit=500
+ *
+ * 向左无限加载历史 K 线（练习起始时间之前的上下文）。
+ * 返回 open_time < before 的最近 limit 根，按时间升序，并带 exhausted 标记。
+ * 与根路径 / 的「最近 N 根」不同：这里按 before 时间窗取，用于滚动到左边缘时增量补齐。
+ */
+klinesRouter.get('/:symbol/history', async (req, res) => {
+  try {
+    const symbol = String(req.params.symbol).trim();
+    const market = parseMarket(req.query.market);
+    const interval = String(req.query.interval || '1h').toLowerCase();
+    const before = Number(req.query.before);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), MAX_LIMIT);
+
+    if (!symbol) return res.status(400).json({ error: '缺少 symbol' });
+    if (!market) {
+      return res.status(400).json({ error: `market 非法，可选：${Object.keys(MARKETS).join(' / ')}` });
+    }
+    if (!['1h', '15m', '4h'].includes(interval)) {
+      return res.status(400).json({ error: 'interval 仅支持 1h / 15m / 4h' });
+    }
+    if (!Number.isFinite(before)) {
+      return res.status(400).json({ error: 'before 必须是 epoch 毫秒' });
+    }
+
+    const { bars, exhausted } = await getHistoryBefore(symbol, { market, interval, beforeTime: before, limit });
+    res.set('Cache-Control', 'private, max-age=60');
+    res.json({ symbol, market, interval, before, limit, count: bars.length, exhausted, bars });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

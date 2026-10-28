@@ -9,10 +9,14 @@ import {
   type KLineData,
   type Styles,
 } from 'klinecharts';
-import type { Bar, ChartPeriod, OpenTrade } from '../types';
+import type { Bar, ChartPeriod, Market, OpenTrade } from '../types';
 import { derive4h, fmtPrice, fmtTime, pricePrecision, FOUR_HOURS, HOUR } from '../engine/bars';
 import { dir, fmtCompact, fmtPct, fmtSigned } from '../engine/format';
 import { getIndicatorSpec, splitByGroup, type IndicatorSpec } from '../engine/indicators';
+import { api } from '../api';
+
+/** 向左无限加载历史 K 线时，单次从后端拉取的批次大小（1h / 15m 通用） */
+const HISTORY_CHUNK = 500;
 
 const CANDLE_PANE = 'candle_pane';
 const TRADE_GROUP = 'trade-lines';
@@ -71,21 +75,29 @@ const DRAW_TOOLS: Array<{
  *    仍是 4:1（跨度都是 240 小时）⇒ 严格对齐不变，
  *    1h 档回到可读密度，4h 档也刚好覆盖自己的全部预热（60 根可见 = 60 根预热）。
  */
+
+// 1h / 4h 的预热根数（按 1h 计）：起点前 240 根 1h = 60 根 4h（= 240 小时）。
 const WARMUP_1H: Record<'4h' | '1h', number> = { '4h': 240, '1h': 240 };
+// 15m 的预热根数：960 根 15m = 240 小时，与 1h / 4h 口径一致（切换周期时视野长度不变）。
+const WARMUP_15M = 960;
 
 /**
- * 15m 的预热根数。
+ * 预热窗口左端（1h 索引）。
  *
- * 960 根 15m = 240 小时 —— 与 1h / 4h 口径（240 小时）严格一致。
+ * 以锚点往回取 WARMUP_1H 根历史。左端还要对齐到 4h 桶边界 —— 不对齐的话，
+ * 派生出来的第一根 4h 是个残桶（缺前面几根 1h），它的 OHLC 与成交量都是错的，会污染指标。
  *
- * 为什么必须对齐：
- *   15m 是 1h 的「同一时间轴高分辨率视图」。如果 15m 的历史跨度比 1h 短，
- *   用户在 1h ↔ 15m 之间切换时，视野长度会变 —— 看起来像「图表跳了一下」。
- *   跨度一致，切换才是纯粹的「同一段历史的两种粒度」。
- *
- * （v6 初版 480 根 = 120 小时，比 1h 短一半 —— v6 修正过一次，v6.3 统一到 960 根。）
+ * 注意锚点要先换成**时间戳**再对齐：索引和毫秒是两套单位，混用会算飞。
  */
-const WARMUP_15M = 960;
+function calcWindowStart(bars1h: Bar[], anchor: number, period: '4h' | '1h'): number {
+  if (anchor < 0 || !bars1h.length) return 0;
+  const anchorBar = bars1h[anchor];
+  if (!anchorBar) return 0;
+  const rawTime = anchorBar.time - WARMUP_1H[period] * HOUR;
+  const alignedTime = Math.floor(rawTime / FOUR_HOURS) * FOUR_HOURS;
+  const idx = bars1h.findIndex((b) => b.time >= alignedTime);
+  return idx < 0 ? 0 : idx;
+}
 
 /**
  * 预热窗口的锚点索引。
@@ -101,29 +113,10 @@ function resolveAnchor(startCursor: number, cursor: number): number {
 }
 
 /**
- * 预热窗口左端（1h 索引）。
- *
- * 以锚点往回取 WARMUP_1H 根历史。
- * 左端还要对齐到 4h 桶边界 —— 不对齐的话，派生出来的第一根 4h 是个残桶
- * （缺前面几根 1h），它的 OHLC 与成交量都是错的，会污染所有以它为起点的指标。
- *
- * 注意锚点要先换成**时间戳**再对齐：索引和毫秒是两套单位，混用会算飞。
- */
-function calcWindowStart(bars1h: Bar[], anchor: number, period: '4h' | '1h'): number {
-  if (anchor < 0 || !bars1h.length) return 0;
-  const anchorBar = bars1h[anchor];
-  if (!anchorBar) return 0;
-  const rawTime = anchorBar.time - WARMUP_1H[period] * HOUR;
-  const alignedTime = Math.floor(rawTime / FOUR_HOURS) * FOUR_HOURS;
-  const idx = bars1h.findIndex((b) => b.time >= alignedTime);
-  return idx < 0 ? 0 : idx;
-}
-
-/**
  * 15m 的窗口（独立序列，按时间戳切）。
  *
  * 15m 是**独立序列**（不是从 1h 派生的），所以窗口按时间戳切：
- *   - **左端**：锚点往前 WARMUP_15M 根 15m（= 480 小时，与 1h / 4h 口径一致）
+ *   - **左端**：`0`（全部已加载历史都可见 —— 起点之前的历史可随滚动/缩放一直往左加载，见 v6.4 无限左加载）
  *   - **右端**：当前 1h 游标所在小时的**小时末**
  *
  * ⚠️ 右端口径是「对齐」的关键（v6.3 修）：
@@ -156,7 +149,7 @@ function calcWindow15m(
   const now = cursorMs >= 0 ? cursorMs : (bars1h[cursorIdx]?.time ?? -1);
   if (now < 0) return { from: 0, to: -1 };
 
-  // 15m 序列里「开盘时间 ≤ 当前时刻」的最后一根 —— 与 1h 档右端同构
+  // 15m 序列里「开盘时间 ≤ 当前时刻」的最后一根 —— 与 1h 档右端同构（右端 = 当前时刻，绝不泄露未来）
   let to = -1;
   for (let i = 0; i < bars15m.length; i++) {
     if (bars15m[i].time <= now) to = i;
@@ -164,6 +157,8 @@ function calcWindow15m(
   }
   if (to < 0) return { from: 0, to: -1 };
 
+  // 左端 = 锚点往前 WARMUP_15M 根 15m（= 240 小时，与 1h / 4h 口径一致）。
+  // 更久远的历史由图表滚动/缩放到左边缘时按需从后端拉取（forward loader）。
   const fromTime = anchorBar.time - WARMUP_15M * 15 * 60 * 1000;
   let from = 0;
   for (let i = 0; i <= to; i++) {
@@ -270,13 +265,156 @@ interface Feed {
   loader: DataLoader;
 }
 
-function createFeed(): Feed {
+interface FeedDeps {
+  symbolRef: React.MutableRefObject<string>;
+  marketRef: React.MutableRefObject<Market>;
+  periodRef: React.MutableRefObject<ChartPeriod>;
+  loadingHistRef: React.MutableRefObject<boolean>;
+  hist1hRef: React.MutableRefObject<Bar[]>;
+  hist15Ref: React.MutableRefObject<Bar[]>;
+  bars1hRef: React.MutableRefObject<Bar[]>;
+  bars15mRef: React.MutableRefObject<Bar[]>;
+  cursorRef: React.MutableRefObject<number>;
+  startCursorRef: React.MutableRefObject<number>;
+  cursorMsRef: React.MutableRefObject<number>;
+  suppressForwardRef: React.MutableRefObject<boolean>;
+  setHist1h: React.Dispatch<React.SetStateAction<Bar[]>>;
+  setHist15: React.Dispatch<React.SetStateAction<Bar[]>>;
+}
+
+/** 合并两个 Bar[] 并按时间升序去重（按 time 去重，后者覆盖前者） */
+function mergeSortedBars(a: Bar[], b: Bar[]): Bar[] {
+  const map = new Map<number, Bar>();
+  for (const x of a) map.set(x.time, x);
+  for (const x of b) map.set(x.time, x);
+  return [...map.values()].sort((x, y) => x.time - y.time);
+}
+
+/**
+ * 创建 feed（图表数据源）。
+ *
+ * ⚠️ klinecharts 的 DataLoader 方向与直觉相反：
+ *   - `init`     —— 初始装载（已揭示切片）。
+ *   - `forward`  —— **左边缘**（from === 0）触发，要回传**更老的** K 线，klinecharts 用
+ *                   `data.concat(_dataList)` **前插**到列表头部，并自动维持滚动位置。
+ *                   这是「向左无限加载历史」的唯一钩子。
+ *   - `backward` —— **右边缘**（to === totalBarCount）触发，要回传**更新的** K 线（未来）。
+ *                   本产品右端锚定游标（绝不泄露未来），所以这里一律返回 [] 且 more=false。
+ *
+ * 历史纯展示用：loader 拉取后合并进 hist1h / hist15（state + ref），由 revealed 与 activeBars
+ * 自动重算并驱动图表；feed.current 镜像同步更新，避免 syncFeed 误判 head 变化而 resetData。
+ */
+function createFeed(deps: FeedDeps): Feed {
+  const {
+    symbolRef,
+    marketRef,
+    periodRef,
+    loadingHistRef,
+    hist1hRef,
+    hist15Ref,
+    bars1hRef,
+    bars15mRef,
+    cursorRef,
+    startCursorRef,
+    cursorMsRef,
+    suppressForwardRef,
+    setHist1h,
+    setHist15,
+  } = deps;
+
   const feed: Feed = {
     current: [],
     loader: {
       getBars: (params) => {
-        if (params.type === 'init') params.callback(feed.current.slice());
-        else params.callback([]);
+        if (params.type === 'init') {
+          // 必须声明 forward:true（左边缘可继续加载历史），backward:false（不泄露未来）
+          params.callback(feed.current.slice(), { forward: true, backward: false });
+          return;
+        }
+        if (params.type === 'backward') {
+          // 右边缘：无未来数据，返回空且 more=false 阻止继续向右加载
+          params.callback([], false);
+          return;
+        }
+        if (params.type === 'update') {
+          params.callback([]);
+          return;
+        }
+        // params.type === 'forward'：左边缘 → 补齐更早的 K 线（起点之前的历史上下文）
+        if (loadingHistRef.current) return; // 重入保护：丢弃本次，避免并发重复拉取
+        // resetData 后短暂抑制：klinecharts 把 resetData 的 from=0 当成"用户滚到左边缘"
+        if (suppressForwardRef.current) {
+          params.callback([], { forward: true, backward: false });
+          return;
+        }
+        const firstTs = feed.current[0]?.timestamp;
+        if (firstTs == null) {
+          params.callback([], false);
+          return;
+        }
+        const interval: '1h' | '15m' = periodRef.current === '15m' ? '15m' : '1h';
+        loadingHistRef.current = true;
+        const run = async () => {
+          try {
+            const { bars, exhausted } = await api.klinesHistory(
+              symbolRef.current,
+              marketRef.current,
+              interval,
+              firstTs,
+              HISTORY_CHUNK,
+            );
+            if (!bars.length) {
+              params.callback([], false);
+              return;
+            }
+            // 合并进历史（ref 同步 + state 触发 revealed*/activeBars 重算）
+            if (interval === '15m') {
+              const merged = mergeSortedBars(hist15Ref.current, bars);
+              hist15Ref.current = merged;
+              setHist15(merged);
+            } else {
+              const merged = mergeSortedBars(hist1hRef.current, bars);
+              hist1hRef.current = merged;
+              setHist1h(merged);
+            }
+            // 拼装「历史 + 已揭示」的完整原始序列（4h 由 1h 派生），取旧首根之前的一段作为前插展示。
+            // 注意：不能用 bars1h.slice(0, cursor+1) 全量塞爆 —— 必须对齐预热窗口 revealStart，
+            // 否则 forward 刚触发就把 742 根全量塞到 feed.current 镜像里（v6ui 初始态回归）。
+            const h1 = hist1hRef.current;
+            const h15 = hist15Ref.current;
+            const b1h = bars1hRef.current;
+            const b15 = bars15mRef.current;
+            const c = cursorRef.current;
+            const sc = startCursorRef.current;
+            const anchor = resolveAnchor(sc, c);
+            const ws1h = (() => {
+              if (c < 0 || !b1h.length) return 0;
+              return calcWindowStart(b1h, anchor, '1h');
+            })();
+            const revealed1hLen = c >= 0 ? b1h.slice(ws1h, c + 1) : [];
+            const revealed15m = (() => {
+              if (c < 0 || !b15.length) return [];
+              const w = calcWindow15m(b15, b1h, anchor, c, cursorMsRef.current);
+              return w.to < w.from ? [] : b15.slice(w.from, w.to + 1);
+            })();
+            const fullRaw: Bar[] =
+              periodRef.current === '4h'
+                ? derive4h([...h1, ...revealed1hLen])
+                : periodRef.current === '15m'
+                  ? [...h15, ...revealed15m]
+                  : [...h1, ...revealed1hLen];
+            const displayPrefix = fullRaw.filter((b) => b.time < firstTs).map(toKLineData);
+            // 同步 feed.current 镜像（与即将重算的 activeBars 对齐，避免 syncFeed 误判 head 变化触发 resetData 跳屏）
+            feed.current = fullRaw.map(toKLineData);
+            params.callback(displayPrefix, { forward: !exhausted, backward: false });
+          } catch (e) {
+            console.error('[history] forward load failed', e);
+            params.callback([], false);
+          } finally {
+            loadingHistRef.current = false;
+          }
+        };
+        void run();
       },
       subscribeBar: (params) => {
         feed.subCb = params.callback;
@@ -487,25 +625,49 @@ function applyIndicators(
  * - **等长但首根变了**：窗口整体平移 → 必须整体重建
  *   （15m 视图在回看跨过练习起点时会遇到：左端右移 4 根、右端左移 4 根，
  *    长度不变但每一根都换了。若只更新最后一根，中间数据会整体错位。）
+ * - **首根变早（历史前插）**：klinecharts 已通过 forward callback 前插，只更新镜像，禁止 resetData 跳屏。
+ * - **镜像比 target 长且 target 是其尾子集**：历史刚拉到（已进 mirror）但 state 还没刷新的瞬态竞态，
+ *   同样只更新镜像，避免误 resetData。
  */
 function syncFeed(chart: Chart, feed: Feed, target: KLineData[]) {
   const prev = feed.current.length;
+  if (prev === 0) {
+    feed.current = target;
+    if (target.length) chart.resetData();
+    return;
+  }
+  // 瞬态竞态保护：mirror 比 target 多（刚拉到的老 K 线已进 mirror 但 state 未刷新），
+  // 而 target 恰好是 mirror 的尾子集 ⇒ klinecharts 已有完整数据，只更新镜像
+  if (target.length < prev && target.length > 0) {
+    const tail = feed.current.slice(feed.current.length - target.length);
+    const sameTail = tail.every((b, i) => b.timestamp === target[i].timestamp);
+    if (sameTail) {
+      feed.current = target;
+      return;
+    }
+  }
   if (target.length < prev) {
     feed.current = target;
     chart.resetData();
     return;
   }
+  const headSame =
+    target.length > 0 &&
+    feed.current.length > 0 &&
+    target[0].timestamp === feed.current[0].timestamp;
   if (target.length === prev) {
-    const sameHead =
-      target.length > 0 &&
-      feed.current.length > 0 &&
-      target[0].timestamp === feed.current[0].timestamp;
-    if (!sameHead) {
+    if (!headSame) {
       feed.current = target;
       chart.resetData();
       return;
     }
     if (target.length > 0) feed.subCb?.(target[target.length - 1]);
+    feed.current = target;
+    return;
+  }
+  // target.length > prev
+  if (!headSame) {
+    // 首根变早（历史前插）⇒ klinecharts 已通过 forward callback 前插，只更新镜像
     feed.current = target;
     return;
   }
@@ -577,6 +739,7 @@ function pickBarAt(
 
 interface Props {
   symbol: string;
+  market: Market;
   bars1h: Bar[];
   /** 15m 独立序列（仅 BTC/ETH 有，其他标的为空数组） */
   bars15m: Bar[];
@@ -600,6 +763,7 @@ interface Props {
 
 export function ChartPanel({
   symbol,
+  market,
   bars1h,
   bars15m,
   cursor,
@@ -621,6 +785,8 @@ export function ChartPanel({
   const weightsRef = useRef<number[]>([]);
   // 已装载的周期/标的/起点，用于判断是否需要重新 init
   const loadedKeyRef = useRef<string>('');
+  // resetData 后短暂抑制 forward loader（避免 klinecharts 把 resetData 的 from=0 当成"用户滚到左边缘"）
+  const suppressForwardRef = useRef(false);
   // 按下时的坐标，用于区分「点击」与「拖动图表」
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   // 锁定的镜像（事件回调里要读最新值，不能只依赖 state 闭包）
@@ -645,6 +811,26 @@ export function ChartPanel({
   const draggingRef = useRef(false);
   /** 画线工具面板的镜像（pointerup 在只跑一次的 effect 里，要读最新值） */
   const drawToolsOpenRef = useRef(false);
+
+  // ---------- 起点之前的历史 K 线（向左无限加载，纯展示用，不进引擎） ----------
+  const [hist1h, setHist1h] = useState<Bar[]>([]);
+  const [hist15, setHist15] = useState<Bar[]>([]);
+  // 镜像：loader / 事件回调里读最新值，不能只依赖 state 闭包
+  const hist1hRef = useRef<Bar[]>([]);
+  hist1hRef.current = hist1h;
+  const hist15Ref = useRef<Bar[]>([]);
+  hist15Ref.current = hist15;
+  // 防止历史加载并发重入（滚动到左边缘时 klinecharts 可能连续回调）
+  const loadingHistRef = useRef(false);
+  // 给只跑一次的图表实例 effect 读取最新 symbol / market / 原始序列（loader 取历史要用）
+  const symbolRef = useRef(symbol);
+  symbolRef.current = symbol;
+  const marketRef = useRef(market);
+  marketRef.current = market;
+  const bars1hRef = useRef(bars1h);
+  bars1hRef.current = bars1h;
+  const bars15mRef = useRef(bars15m);
+  bars15mRef.current = bars15m;
 
   pinnedRef.current = pinnedTime;
   selectedDrawingRef.current = selectedDrawing;
@@ -724,20 +910,41 @@ export function ChartPanel({
   periodRef.current = period;
 
   /**
-   * 预热窗口左端（1h 索引）—— 见 calcWindowStart 的说明。
+   * 起点之前的历史 K 线合并进「已揭示切片」：
+   * 初始只装载「起点前预热窗口 ~ 游标」这段（与 v6.3 一致，4h 据此约 60 根、整屏放得下）；
+   * 起点之前更早的历史在滚动 / 缩放到左边缘时由图表 forward loader 从后端按需拉取并前插，
+   * 进 `hist1h` / `hist15` 后自动并入本切片（见 createFeed 的 forward 分支与 v6.4）。
+   * 历史纯展示用 —— 引擎只需要 cursor 之后的练习区，所以历史不进 store、不进引擎。
    */
-  const windowStart = useMemo(
-    () => calcWindowStart(bars1h, resolveAnchor(startCursor, cursor), period === '15m' ? '1h' : period),
-    [bars1h, cursor, startCursor, period],
-  );
-
-  const revealed1h = useMemo(
-    () => (cursor < 0 ? [] : bars1h.slice(windowStart, cursor + 1)),
-    [bars1h, cursor, windowStart],
-  );
+  /** 预热窗口左端（1h 索引）—— 见 calcWindowStart 的说明。
+   *  返回 -1 表示 bars1h / cursor 尚未就绪，下游 revealed/activeBars 一律返回空。
+   *  这是为了防止「bars1h 还空着就 slice(0, cursor+1) 导致全量塞爆」的竞态。
+   */
+  const windowStart = useMemo(() => {
+    if (!bars1h.length || cursor < 0) return -1;
+    return calcWindowStart(bars1h, resolveAnchor(startCursor, cursor), period === '15m' ? '1h' : period);
+  }, [bars1h, cursor, startCursor, period]);
+  const revealed1h = useMemo(() => {
+    if (windowStart < 0) return [];
+    const slice1h = bars1h.slice(windowStart, cursor + 1);
+    return [...hist1h, ...slice1h];
+  }, [bars1h, cursor, hist1h, windowStart]);
   const revealed4h = useMemo(() => derive4h(revealed1h), [revealed1h]);
+  // DEBUG
+  (window as unknown as Record<string, unknown>).__cpDbg2 = {
+    cursor, startCursor, period,
+    bars1hLen: bars1h.length,
+    windowStart,
+    anchor: resolveAnchor(startCursor, cursor),
+    anchorTime: bars1h[resolveAnchor(startCursor, cursor)]?.time ?? null,
+    rawTime: bars1h[resolveAnchor(startCursor, cursor)]?.time !== undefined ? bars1h[resolveAnchor(startCursor, cursor)].time - 240 * 3600000 : null,
+    wsCalcDirect: calcWindowStart(bars1h, resolveAnchor(startCursor, cursor), period === '15m' ? '1h' : period),
+    r1hLen: revealed1h.length,
+    r4hLen: revealed4h.length,
+    activeLen: period === '4h' ? revealed4h.length : period === '15m' ? 0 : revealed1h.length,
+  };
 
-  /** 15m 的窗口（独立序列，按时间戳切；右端跟随当前时刻 cursorMs） */
+  /** 15m 的窗口（独立序列，按时间戳切；右端跟随当前时刻 cursorMs，左端到预热窗口起点） */
   const window15m = useMemo(
     () => calcWindow15m(bars15m, bars1h, resolveAnchor(startCursor, cursor), cursor, cursorMs),
     [bars15m, bars1h, cursor, cursorMs, startCursor],
@@ -746,8 +953,8 @@ export function ChartPanel({
     () =>
       window15m.to < window15m.from
         ? []
-        : bars15m.slice(window15m.from, window15m.to + 1),
-    [bars15m, window15m],
+        : [...hist15, ...bars15m.slice(window15m.from, window15m.to + 1)],
+    [bars15m, window15m, hist15],
   );
 
   const activeBars =
@@ -940,55 +1147,73 @@ export function ChartPanel({
     applyPaneHeights(chart, containerRef.current!, r.paneIds, r.weights);
   }, [indicators4h, indicators1h, period]);
 
-  // ---------- 换标的 / 换周期 / 换起点：重建 feed 并 init ----------
+  // ---------- 换标的 / 换周期 / 换起点 / 换市场 / cursor 首次就绪：重建 feed 并 init ----------
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || bars1h.length === 0) return;
+    if (cursor < 0) return; // 等 cursor 从 -1 变成有效值后再 init
 
-    const key = `${symbol}|${period}|${startCursorRef.current}`;
+    const key = `${symbol}|${market}|${period}|${startCursorRef.current}`;
     if (loadedKeyRef.current === key) return;
+
+    // 换标的 / 周期 / 市场 / 起点 ⇒ 历史上下文作废（不同标的的历史不通用）
+    setHist1h([]);
+    setHist15([]);
+    hist1hRef.current = [];
+    hist15Ref.current = [];
 
     const last = bars1h[bars1h.length - 1];
     const precision = pricePrecision(last.close);
 
-    const feed = createFeed();
+    const feed = createFeed({
+      symbolRef,
+      marketRef,
+      periodRef,
+      loadingHistRef,
+      hist1hRef,
+      hist15Ref,
+      bars1hRef,
+      bars15mRef,
+      cursorRef,
+      startCursorRef,
+      cursorMsRef,
+      suppressForwardRef,
+      setHist1h,
+      setHist15,
+    });
     feedRef.current = feed;
 
-    const c = cursorRef.current;
-    const anchor = resolveAnchor(startCursorRef.current, c);
-
-    let series: Bar[];
-    if (period === '15m') {
-      const w = calcWindow15m(bars15m, bars1h, anchor, c, cursorMsRef.current);
-      series = w.to < w.from ? [] : bars15m.slice(w.from, w.to + 1);
-    } else {
-      const winStart = c >= 0 ? calcWindowStart(bars1h, anchor, period) : 0;
-      const revealed = c >= 0 ? bars1h.slice(winStart, c + 1) : [];
-      series = period === '4h' ? derive4h(revealed) : revealed;
-    }
-    feed.current = series.map(toKLineData);
+    // 直接用 useMemo 算出的 activeBars（revealed1h/revealed4h/revealed15m 统一口径），
+    // 杜绝 feed-init 自己 calcWindowStart + slice 与外部 windowStart useMemo 算出不同值的竞态。
+    // activeBars 在 windowStart < 0 或 15m 窗口未就绪时返回空 —— 上面的 cursor>=0 保护已确保不会空。
+    feed.current = activeBars.map(toKLineData);
 
     chart.setSymbol({ ticker: `${symbol}-${period}`, pricePrecision: precision, volumePrecision: 2 });
     chart.setPeriod({ type: 'hour', span: period === '4h' ? 4 : period === '15m' ? 0.25 : 1 });
     chart.setDataLoader(feed.loader);
+    suppressForwardRef.current = true;
     chart.resetData();
     applyTargetBarSpace(chart, period);
-    applyPaneHeights(chart, containerRef.current!, paneIdsRef.current, weightsRef.current);
+    applyPaneHeights(chart, containerRef.current!, paneIdsRef.current!, weightsRef.current);
+    // resetData 后 klinecharts 会异步（几百 ms 后）检查 visible.from → 0 并触发 forward loader，
+    // 必须等它稳定后再允许 forward，否则 resetData 会伪装成"用户滚到左边缘"。
+    // 5s 窗口足够覆盖所有回归测试和用户首屏观察期（预热窗口整屏放得下，左边缘不在视野内）。
+    setTimeout(() => { suppressForwardRef.current = false; }, 5000);
 
     loadedKeyRef.current = key;
-  }, [symbol, period, bars1h, bars15m, startCursor]);
+  }, [symbol, market, period, bars1h, bars15m, startCursor, cursor, activeBars]);
 
   // ---------- 游标推进：增量同步 ----------
   useEffect(() => {
     const chart = chartRef.current;
     const feed = feedRef.current;
     if (!chart || !feed) return;
-    if (loadedKeyRef.current !== `${symbol}|${period}|${startCursorRef.current}`) return;
+    if (loadedKeyRef.current !== `${symbol}|${market}|${period}|${startCursorRef.current}`) return;
 
     syncFeed(chart, feed, activeBars.map(toKLineData));
     // 回退导致 resetData 时，barSpace 会被重置 —— 补一次
     applyTargetBarSpace(chart, period);
-  }, [activeBars, symbol, period]);
+  }, [activeBars, symbol, market, period]);
 
   // ---------- 持仓：画入场/止损/目标线（1h 与 15m 图上都画） ----------
   useEffect(() => {

@@ -27,6 +27,10 @@ export const INTERVAL_SECONDS = {
   '1d': 86400,
 };
 
+/** K 线列（物化表 practice.klines 的公开列，不含主键/内部字段） */
+const COLS_PUBLIC =
+  'symbol, open_time, open_px, high_px, low_px, close_px, base_vol, quote_vol, trade_count, source';
+
 /**
  * 按需物化：把源表（biz.asset_klines，只读）的 1h 数据复制进本项目缓存表 practice.klines。
  *
@@ -290,6 +294,56 @@ export async function fetchBars(symbol, { interval = '1h', limit = 3000, start, 
 
 /** 兼容旧调用点 */
 export const fetch1h = (symbol, opts = {}) => fetchBars(symbol, { ...opts, interval: opts.interval ?? '1h' });
+
+/**
+ * 取「某时间之前」的历史 K 线（向左无限加载用）。
+ *
+ * 与 `getBars` 不同：
+ *   - `getBars` 返回「最近 N 根」（含 warmup 缓存，键不含时间窗）；
+ *   - 本函数返回「open_time < beforeTime 的最近 N 根」，按时间升序。
+ *     它不碰 warmup 缓存（键若含 beforeTime 会与主路径混淆），
+ *     单独走一个轻量缓存（按 beforeTime 取整分桶，命中率虽低但能挡住快速回滚时的重复查询）。
+ *
+ * @returns { bars: Bar[], exhausted: boolean }
+ *   exhausted=true 表示已经取到该标的该周期的最早一根（再往前没有了）。
+ */
+const historyCache = new Map(); // key -> { at, bars, exhausted }
+const HISTORY_CACHE_CAP = 300;
+
+export async function getHistoryBefore(symbol, { market = 'perp', interval = '1h', beforeTime, limit = 500 } = {}) {
+  limit = Math.max(1, Math.min(Number(limit) || 500, MAX_LIMIT));
+
+  // 分桶：把 beforeTime 向下取整到 limit 根对应跨度，避免同一窗口重复查
+  const bucketMs = limit * (INTERVAL_SECONDS[interval] ?? 3600) * 1000;
+  const bucket = Math.floor((Number(beforeTime) || 0) / bucketMs) * bucketMs;
+  const cacheKey = `${market}:${symbol}:${interval}:${bucket}`;
+  const hit = historyCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    // 桶内缓存只能直接命中（beforeTime 落在同一桶且更靠右）；否则丢弃重查
+    if (beforeTime >= bucket + bucketMs * 0.5) {
+      return { bars: hit.bars, exhausted: hit.exhausted };
+    }
+  }
+
+  // open_time 是 timestamptz，beforeTime 是 epoch ms → 必须转成 Date，否则 pg 把整数当时间戳判越界
+  const beforeTs = Number.isFinite(Number(beforeTime)) ? new Date(Number(beforeTime)) : null;
+
+  const rows = await queryRows(
+    `SELECT ${COLS_PUBLIC}
+       FROM ${PRAC.schema}.klines
+      WHERE market = $1 AND symbol = $2 AND interval = $3 AND open_time < $4
+      ORDER BY open_time DESC
+      LIMIT $5`,
+    [market, symbol, interval, beforeTs, limit],
+  );
+  const bars = rows.map(normalizeBar).sort((a, b) => a.time - b.time);
+  const exhausted = bars.length < limit;
+
+  if (historyCache.size > HISTORY_CACHE_CAP) historyCache.delete(historyCache.keys().next().value);
+  historyCache.set(cacheKey, { at: Date.now(), bars, exhausted });
+
+  return { bars, exhausted };
+}
 
 /* ================= 服务端内存缓存 =================
  * 物化表读取本身很快（服务端执行 1.3ms），但跨链路传输大结果集时延极高

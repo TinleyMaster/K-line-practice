@@ -72,6 +72,30 @@ export const api = {
       `/klines?symbol=${encodeURIComponent(symbol)}&market=${market}&interval=both&limit=${limit}`,
     ),
 
+  /**
+   * 向左无限加载历史 K 线：取 `before` 时间之前的最近 `limit` 根（升序）。
+   * 用于图表滚动/缩放到左边缘时增量补齐「起点之前」的上下文。
+   */
+  klinesHistory: (
+    symbol: string,
+    market: Market = 'perp',
+    interval: '1h' | '15m' | '4h' = '1h',
+    before: number,
+    limit = 500,
+  ) =>
+    request<{
+      symbol: string;
+      market: Market;
+      interval: string;
+      before: number;
+      limit: number;
+      count: number;
+      exhausted: boolean;
+      bars: import('./types').Bar[];
+    }>(
+      `/klines/${encodeURIComponent(symbol)}/history?market=${market}&interval=${interval}&before=${before}&limit=${limit}`,
+    ),
+
   backfill: (market: Market, symbol: string, days = 365, interval = '1h') =>
     request<Record<string, unknown>>('/klines/backfill', {
       method: 'POST',

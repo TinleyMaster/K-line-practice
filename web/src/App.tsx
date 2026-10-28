@@ -190,6 +190,7 @@ export default function App() {
 
                 <ChartPanel
                   symbol={store.symbol}
+                  market={store.market}
                   bars1h={store.bars1h}
                   bars15m={store.bars15m}
                   cursor={store.cursor}
