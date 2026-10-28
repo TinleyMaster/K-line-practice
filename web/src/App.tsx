@@ -232,6 +232,7 @@ export default function App() {
                     value4h={store.indicators4h}
                     value1h={store.indicators1h}
                     onChange={(p, names) => store.setIndicators(p, names)}
+                    currentPeriod={store.chartPeriod}
                     open={popup === 'indicators'}
                     onOpenChange={(o) => setPopup(o ? 'indicators' : null)}
                   />
@@ -253,6 +254,27 @@ export default function App() {
           </section>
 
           <aside className="side-area">
+            {/*
+              ⚠️ v6.3 修：把「现在为什么不能开仓」放到**顶部醒目位置**。
+              之前只在按钮的 title（要悬停才看得到）和按钮内的一行小字里 ——
+              按钮一灰，用户只看到「点不动」，不知道要做什么
+              （先平仓？先复盘？先退出回看？）。
+            */}
+            {!canTrade && tradeDisabledReason && (
+              <div className="notice warn trade-block-reason">
+                暂时不能开仓：{tradeDisabledReason}
+                {tradeDisabledReason === '回看模式，不能开仓' && (
+                  <div className="muted">按「单步 ▶」前进回到最远处即可恢复开仓</div>
+                )}
+                {tradeDisabledReason === '上一笔交易还没复盘' && (
+                  <div className="muted">先完成复盘（或点「跳过」留痕）再继续</div>
+                )}
+                {tradeDisabledReason === '持仓中，先平仓' && (
+                  <div className="muted">先平掉当前持仓，再开下一笔</div>
+                )}
+              </div>
+            )}
+
             {store.openTrade ? (
               <PositionPanel
                 openTrade={store.openTrade}
@@ -268,6 +290,7 @@ export default function App() {
               <TradePanel
                 setups={store.setups}
                 entryPrice={currentPrice}
+                priceLabel={store.chartPeriod === '15m' ? '当前 15m 价' : '当前 1h 价'}
                 equity={store.equity}
                 bars1h={store.bars1h}
                 disabled={!canTrade}

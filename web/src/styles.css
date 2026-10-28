@@ -2660,3 +2660,75 @@ body.popup-open .ind-panel {
     height: 32px;
   }
 }
+
+/* ---------- 画线工具（v6.3）---------- */
+.draw-tools {
+  position: relative;
+  flex: none;
+}
+
+.draw-trigger.active {
+  color: var(--accent);
+  border-color: rgba(252, 213, 53, 0.5);
+}
+
+.draw-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 176px;
+  padding: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.draw-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  width: 100%;
+  text-align: left;
+}
+
+.draw-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.draw-hint {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/* 开仓被禁的原因：放侧栏顶部，醒目 */
+.trade-block-reason {
+  margin-bottom: 2px;
+}
+
+.trade-block-reason .muted {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+/* 指标面板：说明当前档位与图表的关系 */
+.ind-period-hint {
+  margin-left: auto;
+  font-size: 10px;
+  white-space: nowrap;
+}

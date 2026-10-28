@@ -32,12 +32,13 @@ npm start
 | `v6-features.js` | **v6 浏览器层**：15m⇄1h⇄4h 方向切换 / 无 15m 标的置灰 / 注册登录 / PK 页 / 9 类开仓设置 / 复盘四条关闭路径 | `shots/v6-*.png` | 45/45 通过 |
 | `v6-align.js` | **v6.3 图表交互**：切周期**像素级对齐**（1h↔4h Δ=0px / 15m 右端锚定）/ 单步步长跟随周期 / 图表高度 / 详情条无重叠 / 副图上限 4 | `shots/v6-align.png` | 23/23 通过 |
 | `v6-depth.js` | **v6.3 历史深度（DB 层）**：BTC/ETH 的 15m+1h 是否回填到币安物理下限 / 15m 起点不晚于 1h / 重叠区桶对齐 / 存量基线 | stdout 汇总 | 16/16 通过 |
+| `v6-fixes.js` | **v6.3 五修**：指标配置生效 / 画线工具 / 1h 档密度可读 / 起点可调范围可见且生效 / 开仓被禁原因醒目 | `shots/v6-fixes.png` | 14/14 通过 |
 | `popup-reachability.js` | **弹窗可达性**：5 视口 × 2 弹窗，验证底部「完成」按钮真的点得到 | stdout | 15/15 通过 |
 
 ## 跑法
 
 ```bash
-npm run verify              # 一键跑全套（api + flow + viewport + v3 + v4 + v5 + v6api + v6ui + v6align + v6depth + popup）
+npm run verify              # 一键跑全套（api + flow + viewport + v3 + v4 + v5 + v6api + v6ui + v6align + v6depth + v6fixes + popup）
 
 node scripts/verify/e2e-markets.js          # API 闭环
 node scripts/verify/flow2.js                 # 浏览器交易闭环
@@ -50,6 +51,7 @@ node scripts/verify/v6-api.js                # v6 API 层
 node scripts/verify/v6-features.js           # v6 浏览器层
 node scripts/verify/v6-align.js              # v6.3 图表交互（像素级对齐 + 步长）
 node scripts/verify/v6-depth.js              # v6.3 历史深度（DB 层）
+node scripts/verify/v6-fixes.js              # v6.3 五修（用户反馈项）
 ```
 
 ## 环境变量
@@ -119,4 +121,11 @@ node scripts/verify/v6-depth.js              # v6.3 历史深度（DB 层）
 14. **断言「上限/阈值」类行为时，先确认脚本跑在哪个上下文**。
     同一个脚本里前一段改了全局状态（周期、档位、指标），后一段的断言含义就变了 ——
     别把「脚本没切档位」误判成「产品行为变了」。
+15. **面板的默认状态也会被产品改掉** —— 指标面板原本固定停在「4h 趋势」，
+    v6.3 改成「跟随图表当前周期」后，`v3-features.js` 的「4h/1h 分开配置」测的就成了 1h 的配置。
+    ⇒ 脚本要测哪个档位，就**显式点到那个档位**，别依赖默认值。
+16. **klinecharts 不同 overlay 的 points 坐标语义不一样**（实测）：
+    `segment`（趋势线）必须用**数据坐标** `{timestamp, value}` ——
+    用像素坐标 `{x, y}` 创建出来 overlay 存在但**画不出线**（看着像「没反应」）；
+    `horizontalStraightLine` / `priceLine` 反之，用像素坐标。
 

@@ -277,6 +277,30 @@ export function resolveStartIndex(bars1h: Bar[], manualTime?: number | null): nu
   return Math.max(0, idx);
 }
 
+/**
+ * 练习起点的**实际可调范围**。
+ *
+ * ⚠️ v6.3 修（用户反馈「起点调节失效」）：
+ *   `resolveStartIndex` 有两条硬约束 ——
+ *     · 起点前至少留 MIN_4H_CONTEXT 根 4h 趋势上下文（= 480 根 1h）
+ *     · 起点后至少留 60 根 1h 作为「未来」
+ *   于是起点**能落的区间远小于数据区间**：
+ *   bars1h 只有 1200 根时，起点只能落在 [第480根, 第1140根]。
+ *   而 UI 之前把 input 的 min/max 设成了**数据边界**，用户可以选到会被夹住的时间 ——
+ *   选完起点不动，看起来就是「起点调节失效」。
+ *
+ *   ⇒ 这个函数把真实边界算出来给 UI 用（input 的 min/max + 文字提示）。
+ */
+export function resolveStartRange(bars1h: Bar[]): { minTime: number; maxTime: number } {
+  if (!bars1h.length) return { minTime: 0, maxTime: 0 };
+  const minIdx = Math.min(MIN_4H_CONTEXT * 4, bars1h.length - 1);
+  const maxIdx = Math.max(minIdx, bars1h.length - 60);
+  return {
+    minTime: bars1h[minIdx].time,
+    maxTime: bars1h[maxIdx].time,
+  };
+}
+
 export const usePracticeStore = create<PracticeState>()(
   persist(
     (set, get) => ({

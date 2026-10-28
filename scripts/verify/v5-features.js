@@ -106,10 +106,15 @@ try {
 
   const c4 = await readChart(page);
   log('4h 图表实例可用', !!c4, JSON.stringify(c4?.visible));
+  // 断言「预热 ≥ 可见」而不是硬编码具体根数 ——
+  // 4h 档的预热根数随窗口设计（v6.3 从 120 根 4h 调到 60 根 4h）会变，
+  // 写死数字的话上限一改就静默失效（教训见本目录 README 坑清单第 11 条）。
+  // 真正要守的是：**起点前的历史在视野内** ⇒ 喂进去的根数 ≥ 看得到的根数。
+  const visible4h = c4?.visible?.to ?? 0;
   log(
-    '4h 喂入足够预热历史（≥120 根 4h）',
-    (c4?.dataLen ?? 0) >= 121,
-    `${c4?.dataLen} 根 4h`,
+    '4h 喂入足够预热历史（预热 ≥ 可见，起点前历史在视野内）',
+    (c4?.dataLen ?? 0) >= visible4h,
+    `${c4?.dataLen} 根 4h，可见到第 ${visible4h} 根`,
   );
   log(
     '4h 可见区覆盖到窗口起点（起点前历史在视野内）',

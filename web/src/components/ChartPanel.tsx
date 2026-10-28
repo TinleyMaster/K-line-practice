@@ -18,38 +18,74 @@ const CANDLE_PANE = 'candle_pane';
 const TRADE_GROUP = 'trade-lines';
 
 /**
+ * 画线工具的 overlay 分组。
+ *
+ * 与 TRADE_GROUP 分开：交易线（入场/止损/目标）是**系统画的**，要跟着交易状态更新；
+ * 用户手画的线是**用户的**，切周期要保留、换标的要清掉（对不上新标的）。
+ * klinecharts 换 symbol 时会自动清掉非内置 overlay —— 实测切周期保留、换标的清空 ✅
+ */
+const DRAW_GROUP = 'drawing';
+
+/**
+ * 可用的画线工具。
+ *
+ * ⚠️ klinecharts **基础包只内置 3 种**画线（实测逐个试 createOverlay）：
+ *   segment（趋势线，2 点）、horizontalStraightLine（水平线，1 点）、priceLine（价格线，1 点）。
+ *   ray / verticalLine / parallelLine / fibonacci / rect / circle / arrow / text
+ *   在基础包里 createOverlay 返回 null —— 那是 pro 版的扩展，别写进 UI 里点了没反应。
+ */
+const DRAW_TOOLS: Array<{
+  name: string;
+  label: string;
+  icon: string;
+  points: 1 | 2;
+  /** 单点工具的默认纵向位置（比例）—— 错开，免得画出来叠在一起 */
+  yRatio: number;
+}> = [
+  { name: 'segment', label: '趋势线', icon: '╱', points: 2, yRatio: 0 },
+  { name: 'horizontalStraightLine', label: '水平线', icon: '─', points: 1, yRatio: 0.32 },
+  { name: 'priceLine', label: '价格线', icon: '≡', points: 1, yRatio: 0.58 },
+];
+
+/**
  * 预热窗口：练习起点之前保留多少根 1h K 线喂给图表（1h / 4h 口径）。
  *
  * 为什么必须留：技术指标（MA60 / BOLL / EMA…）需要足够的历史才能算出值。
  * 如果只喂「起点之后」的数据，起点那根的指标全是空的 —— 用户看到的第一屏
  * 没有任何依据，「4h 看趋势」这条规则根本落不了地。
  *
- *   - 1h：480 根 1h（= 480 小时）
- *   - 4h：480 根 1h = 120 根 4h（= 480 小时，够 MA60，也给足趋势结构）
+ *   - 1h：240 根 1h（= 240 小时）
+ *   - 4h：240 根 1h = 60 根 4h（= 240 小时）
  *
- * ⚠️ v6.3 踩过的坑：**别把「预热窗口」和「可见跨度」当成一回事**。
- *   对齐要求的是**可见根数按周期成比例**（VISIBLE_BARS），预热窗口是另一件事 ——
- *   它决定「指标能算出多少值」「起点前的历史在不在视野内」。
- *   早先把 4h 的预热砍到 240 根（=60 根 4h）以求"统一"，结果 4h 档 MA60 卡在临界、
- *   起点前的历史掉出视野 —— 对齐没换来，功能先丢了。
- *   现在的做法：**预热窗口 = 可见跨度 = 480 小时**，各档都能覆盖自己的全部预热，
- *   1h↔4h 又能像素级对齐（barSpace 4:1）。
+ * ⚠️ v6.3 踩过两次坑，这里是最终定稿：
+ *
+ * ① **别把「预热窗口」和「可见跨度」当成一回事**。
+ *    对齐要求的是**可见根数按周期成比例**（VISIBLE_BARS），预热窗口是另一件事 ——
+ *    它决定「指标能算出多少值」「起点前的历史在不在视野内」。
+ *
+ * ② **别为了对齐把 1h 档压得太密**。
+ *    试过「1h 480 根（≈2px/根）+ 4h 120 根」来同时满足「4h 覆盖全部预热」
+ *    和「4:1 严格对齐」—— 结果 **1h 档的 K 线比 15m/4h 都小**（用户实测反馈：
+ *    「1h k线图比其他两个图表显示都小」），2px/根的实体根本看不清形态。
+ *    现在改成 **1h 240 根（≈4px/根）+ 4h 60 根（≈16px/根）**：
+ *    仍是 4:1（跨度都是 240 小时）⇒ 严格对齐不变，
+ *    1h 档回到可读密度，4h 档也刚好覆盖自己的全部预热（60 根可见 = 60 根预热）。
  */
-const WARMUP_1H: Record<'4h' | '1h', number> = { '4h': 480, '1h': 480 };
+const WARMUP_1H: Record<'4h' | '1h', number> = { '4h': 240, '1h': 240 };
 
 /**
  * 15m 的预热根数。
  *
- * 1920 根 15m = 480 小时 —— 与 1h / 4h 口径（480 小时）严格一致。
+ * 960 根 15m = 240 小时 —— 与 1h / 4h 口径（240 小时）严格一致。
  *
  * 为什么必须对齐：
  *   15m 是 1h 的「同一时间轴高分辨率视图」。如果 15m 的历史跨度比 1h 短，
  *   用户在 1h ↔ 15m 之间切换时，视野长度会变 —— 看起来像「图表跳了一下」。
  *   跨度一致，切换才是纯粹的「同一段历史的两种粒度」。
  *
- * （v6 初版 480 根 = 120 小时，比 1h 短一半 —— v6 修正过一次，v6.3 随统一跨度再调到 1920。）
+ * （v6 初版 480 根 = 120 小时，比 1h 短一半 —— v6 修正过一次，v6.3 统一到 960 根。）
  */
-const WARMUP_15M = 1920;
+const WARMUP_15M = 960;
 
 /**
  * 预热窗口的锚点索引。
@@ -338,28 +374,30 @@ function setOffsetRight(chart: Chart, px: number) {
 /**
  * 各档的「可见根数」上限 —— 直接由**预热根数**决定（= 覆盖全部预热历史）。
  *
- * 1h 480 根 / 4h 120 根 天然是 **4:1** ⇒ barSpace 也天然 4:1 ⇒
+ * 1h 240 根 / 4h 60 根 天然是 **4:1** ⇒ barSpace 也天然 4:1 ⇒
  * 同一时刻在 1h 与 4h 下落在同一个横坐标上（像素级对齐）。
  *
  * ⚠️ 这里的取舍（v6.3 定稿）：
- *   1h 档 480 根 ⇒ 宽屏下每根约 2px（币安级密度）。
- *   代价是 1h 的 K 线实体很窄；但换来的是 4h 档能**完整显示 120 根预热**，
+ *   1h 档 240 根 ⇒ 宽屏下每根约 4px，实体看得清阴阳与影线。
+ *   4h 档 60 根（≈16px/根）⇒ 刚好覆盖它自己的全部预热（60 根），
  *   「起点前的历史在视野内」这个 v5 核心功能不退化。
- *   反过来（1h 240 根 @4px、4h 60 根 @16px）虽然 1h 更清晰，
- *   但 4h 档有一半预热掉出视野 —— 对齐没换来，功能先丢了。
+ *
+ *   ⚠️ 曾经试过「1h 480 根（≈2px）+ 4h 120 根」—— 严格对齐也做到了，
+ *   但**用户实测反馈「1h k线图比其他两个图表显示都小」**：
+ *   2px/根的 K 线实体细到看不出形态。
+ *   ⇒ 教训：对齐不能以牺牲主周期可读性为代价。
  */
-const VISIBLE_BARS: Record<ChartPeriod, number> = { '1h': 480, '4h': 120, '15m': 1920 };
+const VISIBLE_BARS: Record<ChartPeriod, number> = { '1h': 240, '4h': 60, '15m': 960 };
 
 /**
  * 每根 K 线的最小像素宽度。
  *
- * 1h / 4h 用 2px：这两档看的是**形态与位置关系**，币安上 1h 图一屏几百根、
- * 每根也就 2px 左右，是正常密度。
+ * 1h / 4h / 15m 都是 4px：K 线实体至少要 4px 才看得出阴阳与影线。
+ * （试过 1h/4h 用 2px，用户反馈「1h 比另外两个图表都小」—— 实体细到看不出形态。）
  *
- * 15m 用 4px：15m 是「精入场」视图，用户要逐根看形态，实体必须看得清。
- * （15m 本来就是对齐的例外档，跨度独立于 1h/4h。）
+ * 15m 本来就是对齐的例外档，跨度独立于 1h/4h。
  */
-const MIN_BAR_PX = 2;
+const MIN_BAR_PX = 4;
 const MIN_BAR_PX_FINE = 4;
 
 /**
@@ -597,7 +635,82 @@ export function ChartPanel({
   /** 练习起点标记的 x 像素位置 */
   const [startX, setStartX] = useState<number | null>(null);
 
+  /** 画线工具面板是否展开 */
+  const [drawToolsOpen, setDrawToolsOpen] = useState(false);
+  /** 当前被点中的画线（按 Delete 可删） */
+  const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
+  /** 画线镜像 —— 键盘事件在只跑一次的 effect 里，需要读最新值 */
+  const selectedDrawingRef = useRef<string | null>(null);
+  /** 正在拖动画线 —— 拖动时不能锁定 K 线（否则画线会顺带锁定一根 K 线） */
+  const draggingRef = useRef(false);
+  /** 画线工具面板的镜像（pointerup 在只跑一次的 effect 里，要读最新值） */
+  const drawToolsOpenRef = useRef(false);
+
   pinnedRef.current = pinnedTime;
+  selectedDrawingRef.current = selectedDrawing;
+  drawToolsOpenRef.current = drawToolsOpen;
+
+  /**
+   * 开始画一根线。
+   *
+   * 交互与币安一致：点工具 → 图上出现一条带控制点的线 → 拖动端点调整 → 按 Delete 删除。
+   *
+   * ⚠️ klinecharts 的 points 是**容器像素坐标**（不是数据坐标），
+   *   所以默认点按容器尺寸比例给，落在主图中部。
+   */
+  const startDrawing = (name: string, pointCount: 1 | 2, yRatio: number) => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const size = chart.getSize();
+    const w = size?.width ?? 800;
+    const h = size?.height ?? 400;
+    const id = `${DRAW_GROUP}_${Date.now()}`;
+
+    const common = {
+      id,
+      groupId: DRAW_GROUP,
+      paneId: CANDLE_PANE,
+      lock: false,
+      zLevel: 50,
+      styles: {
+        line: { color: '#FCD535', style: 'dashed', dashedValue: [4, 4], size: 1 },
+        point: { color: '#FCD535', size: 4 },
+      },
+      onClick: () => setSelectedDrawing(id),
+      onPressedMoveStart: () => {
+        draggingRef.current = true;
+      },
+      onPressedMoveEnd: () => {
+        draggingRef.current = false;
+      },
+    };
+
+    const points =
+      pointCount === 2
+        ? // ⚠️ segment（趋势线）必须用**数据坐标** {timestamp, value} ——
+          //   用像素坐标 {x, y} 创建出来是**空的**（实测：overlay 存在但画不出线）。
+          //   水平线 / 价格线反之，用像素坐标。
+          (() => {
+            if (activeBars.length < 2) return [];
+            const a = activeBars[Math.floor(activeBars.length * 0.4)];
+            const b = activeBars[Math.floor(activeBars.length * 0.6)];
+            return [
+              { timestamp: a.time, value: a.close },
+              { timestamp: b.time, value: b.close },
+            ];
+          })()
+        : [{ x: Math.round(w * 0.5), y: Math.round(h * yRatio) }];
+
+    chart.createOverlay({ ...common, name, points } as never);
+    setDrawToolsOpen(false);
+    setSelectedDrawing(id);
+  };
+
+  /** 清除全部用户画线 */
+  const clearDrawings = () => {
+    chartRef.current?.removeOverlay({ groupId: DRAW_GROUP });
+    setSelectedDrawing(null);
+  };
 
   // 游标只用于「初始化时取已揭示切片」，不作为重建图表的依赖
   const cursorRef = useRef(cursor);
@@ -684,6 +797,10 @@ export function ChartPanel({
       if (!down) return;
       // 位移超过 5px 视为拖动图表，不算点击
       if (Math.abs(ev.clientX - down.x) > 5 || Math.abs(ev.clientY - down.y) > 5) return;
+      // 正在拖动画线 ⇒ 不锁定 K 线（否则画线会顺带锁定一根 K 线，很烦）
+      if (draggingRef.current) return;
+      // 画线工具面板开着时也不锁定（用户正准备画线，别乱锁）
+      if (drawToolsOpenRef.current) return;
 
       const hit = pickBarAt(chart, el, ev.clientX, ev.clientY);
       if (!hit) {
@@ -696,7 +813,20 @@ export function ChartPanel({
     };
 
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') setPinnedTime(null);
+      if (ev.key === 'Escape') {
+        setPinnedTime(null);
+        setDrawToolsOpen(false);
+        return;
+      }
+      // 删除选中的画线（币安同款：点选后按 Delete）
+      if (ev.key === 'Delete' || ev.key === 'Backspace') {
+        const id = selectedDrawingRef.current;
+        if (id) {
+          chart.removeOverlay({ id });
+          setSelectedDrawing(null);
+          ev.preventDefault();
+        }
+      }
     };
 
     el.addEventListener('pointermove', onPointerMove);
@@ -977,6 +1107,43 @@ export function ChartPanel({
           >
             ›
           </button>
+
+          {/* 画线工具 —— 币安同款：工具条上一排小图标 */}
+          <div className="draw-tools">
+            <button
+              className={`btn tiny ghost draw-trigger ${drawToolsOpen ? 'active' : ''}`}
+              onClick={() => setDrawToolsOpen((v) => !v)}
+              title="画线工具（趋势线 / 水平线 / 价格线）"
+              aria-expanded={drawToolsOpen}
+            >
+              ✏ 画线
+            </button>
+            {drawToolsOpen && (
+              <div className="draw-panel">
+                {DRAW_TOOLS.map((t) => (
+                  <button
+                    key={t.name}
+                    className="btn tiny draw-item"
+                    onClick={() => startDrawing(t.name, t.points, t.yRatio)}
+                    title={`${t.label}：点在图上出现后拖动端点调整`}
+                  >
+                    <span className="draw-icon">{t.icon}</span>
+                    {t.label}
+                  </button>
+                ))}
+                <button
+                  className="btn tiny ghost draw-item"
+                  onClick={clearDrawings}
+                  title="清除全部画线"
+                >
+                  🗑 清除
+                </button>
+                <div className="draw-hint muted">
+                  拖动端点调整 · 点选后按 Delete 删除 · 切周期保留、换标的清除
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className={`ohlc-strip ${locked ? 'locked' : ''}`}>

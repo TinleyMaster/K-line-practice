@@ -181,6 +181,17 @@ try {
   await page.click('.ind-trigger');
   await sleep(500);
 
+  // ⚠️ v6.3：指标面板的周期 Tab **跟随图表当前周期**（默认 1h ⇒ 面板开在「1h 入场」）。
+  // 本段测的是「4h 与 1h 分开配置」⇒ 必须**显式切到 4h 档**，
+  // 否则测的会是 1h 的配置（脚本不该依赖面板的默认状态）。
+  await page.evaluate(() => {
+    const t = [...document.querySelectorAll('.ind-period-tab')].find((x) =>
+      x.textContent.trim().startsWith('4h'),
+    );
+    t?.click();
+  });
+  await sleep(500);
+
   const indMeta = await page.evaluate(() => {
     const items = [...document.querySelectorAll('.ind-item')];
     const groups = [...document.querySelectorAll('.ind-group-title')].map((g) => g.textContent.trim());

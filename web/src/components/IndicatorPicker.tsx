@@ -7,6 +7,7 @@ import {
 } from '../engine/indicators';
 import { markPopupOpen } from '../engine/popup';
 import { usePopupPosition } from '../hooks/usePopupPosition';
+import type { ChartPeriod } from '../types';
 
 interface Props {
   /** 4h 周期当前选中的指标名 */
@@ -14,6 +15,8 @@ interface Props {
   /** 1h 周期当前选中的指标名 */
   value1h: string[];
   onChange: (period: '4h' | '1h', names: string[]) => void;
+  /** 图表当前周期 —— 面板打开时默认切到对应档位 */
+  currentPeriod: ChartPeriod;
   /** 受控的展开状态 */
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -22,10 +25,30 @@ interface Props {
 const OVERLAY_SPECS = ALL_INDICATORS.filter((i) => i.group === 'overlay');
 const PANE_SPECS = ALL_INDICATORS.filter((i) => i.group === 'pane');
 
-export function IndicatorPicker({ value4h, value1h, onChange, open, onOpenChange }: Props) {
-  const [period, setPeriod] = useState<'4h' | '1h'>('4h');
+/** 15m 复用 1h 的指标配置 ⇒ 面板上对应「1h 入场」那一档 */
+function tabOf(period: ChartPeriod): '4h' | '1h' {
+  return period === '4h' ? '4h' : '1h';
+}
+
+export function IndicatorPicker({
+  value4h,
+  value1h,
+  onChange,
+  currentPeriod,
+  open,
+  onOpenChange,
+}: Props) {
+  // ⚠️ v6.3 修：面板周期**跟随图表当前周期**。
+  //   原来固定停在「4h 趋势」档 —— 用户在 1h 图表上打开面板改指标，
+  //   改的其实是 **4h 的配置**，切回 1h 看毫无变化 ⇒ 「改了没反应」的错觉。
+  const [period, setPeriod] = useState<'4h' | '1h'>(() => tabOf(currentPeriod));
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // 每次打开（或图表换档）都切到当前图表对应的那一档
+  useEffect(() => {
+    if (open) setPeriod(tabOf(currentPeriod));
+  }, [open, currentPeriod]);
 
   // 弹窗打开时标记 body，让吸底回放条降级，避免盖住弹窗底部
   useEffect(() => {
@@ -99,6 +122,9 @@ export function IndicatorPicker({ value4h, value1h, onChange, open, onOpenChange
             >
               1h 入场
             </button>
+            <span className="muted ind-period-hint">
+              {currentPeriod === '15m' ? '15m 复用 1h 的指标配置' : `当前图表：${currentPeriod}`}
+            </span>
           </div>
 
           <div className="ind-group">

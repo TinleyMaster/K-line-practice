@@ -3,6 +3,7 @@ import type { Bar } from '../types';
 import { fmtTime } from '../engine/bars';
 import { markPopupOpen } from '../engine/popup';
 import { usePopupPosition } from '../hooks/usePopupPosition';
+import { resolveStartRange } from '../store/usePracticeStore';
 
 interface Props {
   bars1h: Bar[];
@@ -50,15 +51,26 @@ export function StartTimePicker({ bars1h, cursor, isManual, onSet, open, onOpenC
   const lastBar = bars1h.length ? bars1h[bars1h.length - 1] : null;
   const firstBar = bars1h.length ? bars1h[0] : null;
 
-  // 快捷区间基于「数据末端」倒推，而不是当前游标 —— 反复点不会漂移
+  /**
+   * 起点的**实际可调范围**（不是数据范围）。
+   *
+   * ⚠️ v6.3 修：之前 input 的 min/max 用的是数据边界，
+   *   但 `resolveStartIndex` 会把起点夹在 [第480根, 第1140根]
+   *   （前留 120 根 4h 趋势上下文、后留 60 根 1h 未来）——
+   *   用户选到范围外的时间 ⇒ 起点不动 ⇒ 「起点调节失效」。
+   *   现在 min/max 直接用真实边界，选不超出就一定生效。
+   */
+  const range = useMemo(() => resolveStartRange(bars1h), [bars1h]);
+
+  // 快捷区间基于「数据末端」倒推，但要裁进可调范围 —— 否则点了也不动
   const quickOptions = useMemo(() => {
     if (!lastBar) return [];
-    return QUICK_RANGES.map((r) => ({
-      ...r,
-      time: lastBar.time - r.ms,
-      label: `往前 ${r.label}`,
-    }));
-  }, [lastBar]);
+    return QUICK_RANGES.map((r) => {
+      const raw = lastBar.time - r.ms;
+      const time = Math.max(range.minTime, Math.min(range.maxTime, raw));
+      return { ...r, time, clipped: time !== raw };
+    });
+  }, [lastBar, range]);
 
   const [localValue, setLocalValue] = useState(() =>
     currentBar ? toLocalInput(currentBar.time) : '',
@@ -100,8 +112,8 @@ export function StartTimePicker({ bars1h, cursor, isManual, onSet, open, onOpenC
               type="datetime-local"
               value={localValue}
               onChange={(e) => applyLocal(e.target.value)}
-              min={firstBar ? toLocalInput(firstBar.time) : undefined}
-              max={lastBar ? toLocalInput(lastBar.time) : undefined}
+              min={bars1h.length ? toLocalInput(range.minTime) : undefined}
+              max={bars1h.length ? toLocalInput(range.maxTime) : undefined}
             />
           </div>
 
@@ -110,10 +122,18 @@ export function StartTimePicker({ bars1h, cursor, isManual, onSet, open, onOpenC
             <div className="start-quick">
               {quickOptions.map((q) => (
                 <button key={q.label} className="btn tiny" onClick={() => pickQuick(q.time)}>
-                  {q.label}
+                  {`往前 ${q.label}`}
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="start-row">
+            <span className="muted">可调范围</span>
+            <span className="start-range">
+              {bars1h.length ? fmtTime(range.minTime) : '—'} ~{' '}
+              {bars1h.length ? fmtTime(range.maxTime) : '—'}
+            </span>
           </div>
 
           <div className="start-row">
@@ -140,7 +160,8 @@ export function StartTimePicker({ bars1h, cursor, isManual, onSet, open, onOpenC
           </div>
 
           <div className="start-hint">
-            起点前会自动保留至少 120 根 4h 趋势上下文，起点后至少留 60 根 1h 作为「未来」。
+            起点前会自动保留至少 120 根 4h 趋势上下文，起点后至少留 60 根 1h 作为「未来」
+            —— 所以「可调范围」比「数据范围」窄，只能在上面的区间里选。
           </div>
         </div>
       )}

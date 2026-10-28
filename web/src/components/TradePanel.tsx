@@ -5,6 +5,8 @@ import { atr, fmtPrice } from '../engine/bars';
 interface Props {
   setups: Setup[];
   entryPrice: number;
+  /** 价格来源说明（15m 档是 15m 价，1h/4h 档是 1h 价）—— v6.3 起按钮文案要如实标注 */
+  priceLabel?: string;
   equity: number;
   /** 用于算 ATR 的已揭示 1h K 线（止损可按 ATR 倍数设置） */
   bars1h: Bar[];
@@ -59,6 +61,7 @@ const TP_RATIOS = [1, 1.5, 2, 3];
 export function TradePanel({
   setups,
   entryPrice,
+  priceLabel = '当前价',
   equity,
   bars1h,
   disabled,
@@ -601,7 +604,7 @@ export function TradePanel({
       {msg && <div className="notice error">{msg}</div>}
 
       <button className="btn primary wide" disabled={!valid} onClick={submit}>
-        开仓（按当前 1h 收盘价）
+        开仓（按{priceLabel}）
       </button>
       {!setupName && <div className="hint">先选一个设置 —— 没有设置就不该开仓</div>}
       {setupName && !allChecked && <div className="hint">检查表未全部勾选，不能开仓</div>}
