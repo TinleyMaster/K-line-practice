@@ -1131,6 +1131,7 @@ export function ChartPanel({
 
   // ---------- 指标装载：随配置 / 周期变化重建 ----------
   useEffect(() => {
+    console.log('[ChartPanel] ind effect run hasChart=' + !!chartRef.current + ' period=' + period + ' ind4=' + JSON.stringify(indicators4h) + ' ind1=' + JSON.stringify(indicators1h));
     const chart = chartRef.current;
     if (!chart) return;
 

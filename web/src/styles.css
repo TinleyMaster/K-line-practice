@@ -1845,6 +1845,22 @@ textarea {
   .notice.banner {
     margin: 8px 8px;
   }
+
+  /* 移动端：指标/起点面板改为底部抽屉式，可滑动且不被回放条遮挡 */
+  .start-panel,
+  .ind-panel {
+    min-width: 0;
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: min(78vh, 560px);
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    top: auto;
+    left: 8px;
+    right: 8px;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+  }
 }
 
 /* ---- 6. 矮屏横屏（手机横放）：压缩纵向占用 ----
