@@ -69,9 +69,88 @@ try {
       hasTouch: vp.mobile,
     });
     await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 90000 });
-    await sleep(5000);
+    // ⚠️ 禁盲等：bars1h 未加载时桌面侧栏不渲染 trigger（曾致 iphone-ls 假失败）。
+    // 必须等数据就绪再测 —— 「读早=假绿/假红」铁律。
+    await page
+      .waitForFunction(() => (window.__practiceStore?.getState?.().bars1h?.length ?? 0) > 0, {
+        timeout: 60000,
+      })
+      .catch(() => {});
+    await sleep(1200); // 等布局稳定（指标实例挂载）
+
+    // 移动布局（≤767px 竖屏）下，起点/指标选择器**内联在 ☰ 抽屉**（静态流，非弹层）。
+    // 对内联表单断言「面板整体在视口内」不成立（表单本就该比视口长），
+    // 正确判据：打开抽屉后，面板的底部按钮能滚动进入视口且真正可点。
+    const isMobileLayout = await page.evaluate(() => !!document.querySelector('.app-mobile'));
 
     for (const pop of POPUPS) {
+      if (isMobileLayout) {
+        // ── 移动端路径：打开 ☰ 抽屉，测内联选择器可达性 ──
+        const menuReady = await page
+          .waitForSelector('.m-menu-btn', { timeout: 15000 })
+          .then(() => true)
+          .catch(() => false);
+        if (!menuReady) {
+          log(`${pop.trigger} 选择器在 ☰ 抽屉内可达（移动端内联）`, false, '☰ 按钮 15s 内未挂载');
+          continue;
+        }
+        await page.evaluate(() => {
+          if (!document.querySelector('.sheet.open')) {
+            document.querySelector('.m-menu-btn')?.click();
+          }
+        });
+        await sleep(800); // 等抽屉上滑动画
+
+        // 抽屉里的面板是条件渲染（{open && ...}）→ 先点抽屉内的 trigger 展开
+        await page.evaluate((sel) => {
+          const t = document.querySelector(`.m-section ${sel}`);
+          if (t && !t.classList.contains('active')) t.click();
+        }, pop.trigger);
+        await sleep(900); // 等面板渲染 + React 提交
+
+        const m = await page.evaluate((panelSel) => {
+          const panel = document.querySelector(panelSel);
+          if (!panel) return { none: true };
+          const foot = [...panel.querySelectorAll('.ind-foot .btn')];
+          const last = foot[foot.length - 1] ?? [...panel.querySelectorAll('button')].pop();
+          // 抽屉 body 可滚动 → 先把底部按钮滚进视口再测
+          last?.scrollIntoView({ block: 'center' });
+          const fr = last?.getBoundingClientRect();
+          let clickable = false;
+          if (fr) {
+            const cx = Math.round(fr.left + fr.width / 2);
+            const cy = Math.round(fr.top + fr.height / 2);
+            const el = document.elementFromPoint(cx, cy);
+            clickable = el ? el === last || el.contains(last) || last.contains(el) : false;
+          }
+          return {
+            none: false,
+            inViewport: fr ? fr.top >= -1 && fr.bottom <= window.innerHeight + 1 : false,
+            clickable,
+            top: Math.round(fr?.top ?? -1),
+            bottom: Math.round(fr?.bottom ?? -1),
+            vh: window.innerHeight,
+          };
+        }, pop.panel);
+
+        log(
+          `${pop.trigger} 选择器在 ☰ 抽屉内可达（移动端内联）`,
+          !m.none && m.inViewport && m.clickable,
+          JSON.stringify(m),
+        );
+        continue;
+      }
+
+      // ── 桌面布局路径：弹层形态（原有逻辑） ──
+      // trigger 可能随数据/布局延迟挂载 → 等它存在再操作（最多 15s）
+      const trigExists = await page
+        .waitForSelector(pop.trigger, { timeout: 15000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!trigExists) {
+        log(`${pop.trigger} 弹窗可达`, false, 'trigger 15s 内未挂载（数据加载失败？）');
+        continue;
+      }
       // 保证初始为关闭态
       await page.evaluate((sel) => {
         const b = document.querySelector(sel);

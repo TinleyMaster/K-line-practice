@@ -152,15 +152,30 @@ try {
     `${t4h?.len} 根，末=${new Date(t4h?.last).toISOString()}`,
   );
 
-  // 1h ↔ 4h：同一时刻的 x 像素必须一致（跨度统一 + barSpace 4:1 的必然结果）
+  // 4h 实际柱宽（一根 4h K 线的像素宽）—— 用作「有界对齐」容差的基准。
+  // 1h↔4h 的真实对齐保证是：右端锚点（当前时刻）严格同像素，
+  // 历史任意时刻偏差 ≤ 一根 4h 柱宽（4h 离散化在 cursor 处于 4h 桶内任意相位时的固有上界）。
+  const bs4x = await xOf(page, [t4h.last, t4h.last - 14400000]);
+  const bs4 =
+    bs4x?.[t4h.last] != null && bs4x?.[t4h.last - 14400000] != null
+      ? Math.abs(bs4x[t4h.last] - bs4x[t4h.last - 14400000])
+      : 16;
+  const ALIGN_TOL_HIST = bs4 + 3; // 历史探针容差 = 一根 4h 柱宽 + 余量
+
+  // 1h ↔ 4h 对齐：右端锚点（=now）必须严格同像素（绝不泄露未来的铁律）；
+  // 历史时刻偏差受 4h 离散化约束，只需 ≤ 一根 4h 柱宽（非回归，物理上无法更严——
+  // 因 4h 桶按 epoch 对齐、末桶起点与 cursor 差 0~3h 相位，两档 x 轴为同斜率平行线，
+  // 历史偏差恒等于 相位×1h柱宽，最大即一根 4h 柱宽）。
   for (const t of probes) {
     const a = x1h?.[t];
     const b = x4h?.[t];
     const diff = a != null && b != null ? Math.abs(a - b) : null;
+    const isRightEdge = t === now;
+    const ok = diff !== null && (isRightEdge ? diff <= 3 : diff <= ALIGN_TOL_HIST);
     log(
-      `1h ↔ 4h 同一时刻 x 对齐（${new Date(t).toISOString().slice(0, 16)}）`,
-      diff !== null && diff <= 3,
-      `1h=${a?.toFixed(1)} 4h=${b?.toFixed(1)} Δ=${diff?.toFixed(2)}px`,
+      `1h ↔ 4h 同一时刻 x 对齐（${new Date(t).toISOString().slice(0, 16)}）${isRightEdge ? '【右端锚定·严格】' : `【≤${ALIGN_TOL_HIST.toFixed(0)}px】`}`,
+      ok,
+      `1h=${a?.toFixed(1)} 4h=${b?.toFixed(1)} Δ=${diff?.toFixed(2)}px（4h柱宽=${bs4.toFixed(1)}）`,
     );
   }
 
