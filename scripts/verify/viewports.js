@@ -203,25 +203,57 @@ const run = async () => {
       fullPage: false,
     });
 
-    // 切到现货市场
-    const spotTab = await page.$$('.market-tab');
-    if (spotTab.length >= 2) {
-      await spotTab[1].click();
-      await new Promise((r) => setTimeout(r, 6000));
-      const spotRes = await page.evaluate(PROBE);
-      spotRes.jsErrors = errors.slice();
-      await page.screenshot({ path: path.join(OUT, `${vp.name}-spot.png`) });
-      res.spotTab = spotRes;
-    }
+    // 切到其他市场：桌面点顶部 .market-tab；移动端点 ☰ 抽屉里的 .m-market 切换器
+    const isMobile = await page.evaluate(() => !!document.querySelector('.app-mobile'));
 
-    // 切到链上美股
-    if (spotTab.length >= 3) {
-      await spotTab[2].click();
-      await new Promise((r) => setTimeout(r, 8000));
-      const stockRes = await page.evaluate(PROBE);
-      stockRes.jsErrors = errors.slice();
-      await page.screenshot({ path: path.join(OUT, `${vp.name}-stock.png`) });
-      res.stockTab = stockRes;
+    if (isMobile) {
+      const switchMobile = async (market) => {
+        // 打开 ☰ 抽屉
+        await page.evaluate(() => document.querySelector('.m-menu-btn')?.click());
+        await new Promise((r) => setTimeout(r, 700));
+        // 点对应市场按钮（点击后抽屉自动关闭并切换图表）
+        const ok = await page.evaluate((mkt) => {
+          const b = document.querySelector(`.m-market .m-market-btn[data-market="${mkt}"]`);
+          if (!b || b.disabled) return false;
+          b.click();
+          return true;
+        }, market);
+        if (!ok) return null;
+        await new Promise((r) => setTimeout(r, 6500));
+        const r = await page.evaluate(PROBE);
+        r.jsErrors = errors.slice();
+        return r;
+      };
+      const spotRes = await switchMobile('spot');
+      if (spotRes) {
+        await page.screenshot({ path: path.join(OUT, `${vp.name}-spot.png`) });
+        res.spotTab = spotRes;
+      }
+      const stockRes = await switchMobile('stock');
+      if (stockRes) {
+        await page.screenshot({ path: path.join(OUT, `${vp.name}-stock.png`) });
+        res.stockTab = stockRes;
+      }
+    } else {
+      const spotTab = await page.$$('.market-tab');
+      if (spotTab.length >= 2) {
+        await spotTab[1].click();
+        await new Promise((r) => setTimeout(r, 6000));
+        const spotRes = await page.evaluate(PROBE);
+        spotRes.jsErrors = errors.slice();
+        await page.screenshot({ path: path.join(OUT, `${vp.name}-spot.png`) });
+        res.spotTab = spotRes;
+      }
+
+      // 切到链上美股
+      if (spotTab.length >= 3) {
+        await spotTab[2].click();
+        await new Promise((r) => setTimeout(r, 8000));
+        const stockRes = await page.evaluate(PROBE);
+        stockRes.jsErrors = errors.slice();
+        await page.screenshot({ path: path.join(OUT, `${vp.name}-stock.png`) });
+        res.stockTab = stockRes;
+      }
     }
 
     report[vp.name] = res;

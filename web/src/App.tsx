@@ -15,6 +15,9 @@ import { StartTimePicker } from './components/StartTimePicker';
 import { AuthPanel } from './components/AuthPanel';
 import { PkView } from './components/PkView';
 import { PendingJournal } from './components/PendingJournal';
+import { useIsMobile } from './hooks/useMediaQuery';
+import { MobileTopBar } from './components/MobileTopBar';
+import { MobilePractice } from './components/MobilePractice';
 import { fmtPrice, fmtTime } from './engine/bars';
 import { priceBarAt } from './store/usePracticeStore';
 
@@ -29,6 +32,9 @@ export default function App() {
   const [popup, setPopup] = useState<Popup>(null);
   /** 是否展开登录面板 */
   const [authOpen, setAuthOpen] = useState(false);
+
+  const isMobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     void store.bootstrap();
@@ -47,6 +53,28 @@ export default function App() {
   );
   const currentPrice = currentBar?.close ?? 0;
   const totalR = store.closedTrades.reduce((s, t) => s + t.rMultiple, 0);
+
+  /** 顶栏/底栏用的 24h 窗口涨跌（与行情头 MarketHeader 同口径） */
+  const stats = useMemo(() => {
+    const rev = store.cursor >= 0 ? store.bars1h.slice(0, store.cursor + 1) : [];
+    if (!rev.length) return null;
+    const last = rev[rev.length - 1];
+    const w = rev.slice(-24);
+    const high = Math.max(...w.map((b) => b.high));
+    const low = Math.min(...w.map((b) => b.low));
+    const volume = w.reduce((s, b) => s + b.volume, 0);
+    const open = w[0].open;
+    const chg = last.close - open;
+    const chgPct = open ? (chg / open) * 100 : 0;
+    return { last, high, low, volume, chg, chgPct };
+  }, [store.bars1h, store.cursor]);
+
+  /** 移动端 ☰ 抽屉里的视图切换（顺带 bump statsKey，与桌面 Tab 行为一致） */
+  const navigate = (v: View) => {
+    setView(v);
+    if (v === 'stats' || v === 'pk') setStatsKey((k) => k + 1);
+    setDrawerOpen(false);
+  };
 
   /** 回看模式：游标落后于已回放到的最远处 —— 这时不能开仓 */
   const lookback = store.cursor >= 0 && store.cursor < store.maxCursor;
@@ -94,7 +122,20 @@ export default function App() {
     (store.market === 'perp' ? 'U本位合约' : store.market === 'spot' ? '现货' : '链上美股');
 
   return (
-    <div className="app">
+    <div className={isMobile ? 'app app-mobile' : 'app'}>
+      {isMobile && (
+        <MobileTopBar
+          symbol={store.symbol}
+          market={store.market}
+          marketLabel={marketLabel}
+          currentPrice={currentPrice}
+          stats={stats}
+          equity={store.equity}
+          userDisplayName={store.user?.displayName}
+          onMenu={() => setDrawerOpen(true)}
+          onEquity={() => setDrawerOpen(true)}
+        />
+      )}
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">K</span>
@@ -172,6 +213,18 @@ export default function App() {
       )}
 
       {view === 'practice' && (
+        isMobile ? (
+          <MobilePractice
+            stats={stats}
+            view={view}
+            onNavigate={navigate}
+            drawerOpen={drawerOpen}
+            setDrawerOpen={setDrawerOpen}
+            popup={popup}
+            setPopup={setPopup}
+            setAuthOpen={setAuthOpen}
+          />
+        ) : (
         <main className="practice-layout">
           <section className="chart-area">
             {store.loading ? (
@@ -336,6 +389,7 @@ export default function App() {
             )}
           </aside>
         </main>
+        )
       )}
 
       {view === 'stats' && (

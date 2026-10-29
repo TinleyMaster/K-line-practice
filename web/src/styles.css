@@ -2732,3 +2732,440 @@ body.popup-open .ind-panel {
   font-size: 10px;
   white-space: nowrap;
 }
+
+/* ============================================================
+   移动端币安式布局（v6.5）
+   作用域严格限定在 .app-mobile —— 桌面端 .app 完全不被这些规则影响。
+   目标：一开就是满屏 K 线 + 顶部币种/价格 + 底部吸底操作条（回放+开仓），
+   高级控制（起点/指标/跳第N/账户/视图切换）收进 ☰ 抽屉。
+   ============================================================ */
+.app-mobile {
+  height: 100dvh;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 桌面端顶栏 / Tab 在移动端隐藏（已由精简顶栏替代） */
+.app-mobile .topbar,
+.app-mobile .tabs {
+  display: none;
+}
+
+/* ---- 移动端精简顶栏（币安风格） ---- */
+.app-mobile .m-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 8px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.app-mobile .m-menu-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+  line-height: 1;
+  background: none;
+  border: none;
+  color: var(--text);
+  display: grid;
+  place-items: center;
+}
+.app-mobile .m-ticker {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+.app-mobile .m-ticker-symbol {
+  font-size: 15px;
+  font-weight: 700;
+  flex: none;
+}
+.app-mobile .m-ticker-badge {
+  flex: none;
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text-dim);
+}
+.app-mobile .m-ticker-badge.perp { color: #fcd535; border-color: rgba(252, 213, 53, 0.35); }
+.app-mobile .m-ticker-badge.spot { color: #0ecb81; border-color: rgba(14, 203, 129, 0.35); }
+.app-mobile .m-ticker-badge.stock { color: #7aa2f7; border-color: rgba(122, 162, 247, 0.35); }
+.app-mobile .m-ticker-price {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.app-mobile .m-ticker-chg {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.app-mobile .m-equity {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.15;
+  cursor: pointer;
+}
+.app-mobile .m-equity-label { font-size: 10px; color: var(--text-muted); }
+.app-mobile .m-equity-val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---- 练习主体：图表填满顶栏与底栏之间 ---- */
+.app-mobile .m-practice {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-mobile .m-chart-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-mobile .m-chart-area .view-loading {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.app-mobile .chart-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-mobile .chart-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.app-mobile .chart-canvas {
+  width: 100%;
+  height: 100% !important;
+}
+
+/* 24h 细条 */
+.app-mobile .m-24h {
+  flex: none;
+  display: flex;
+  gap: 16px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.app-mobile .m-24h em {
+  font-style: normal;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.app-mobile .m-24h span { font-variant-numeric: tabular-nums; }
+
+/* ---- 底部吸底操作条（回放 + 开仓） ---- */
+.app-mobile .m-actionbar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.app-mobile .m-replay {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+.app-mobile .m-replay .replay-controls {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+}
+.app-mobile .m-replay .replay-btns {
+  flex: 1 0 100%;
+}
+.app-mobile .m-replay .replay-btns .btn-step,
+.app-mobile .m-replay .replay-btns .btn-play {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0;
+}
+.app-mobile .m-replay .replay-progress {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+.app-mobile .m-replay .replay-count {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.app-mobile .m-replay .replay-reset {
+  flex: none;
+  min-height: 28px;
+  padding: 0 8px;
+}
+/* 速度选择在移动端底栏隐藏（保持简洁，默认 1s 播放；进阶在抽屉里后续可加） */
+.app-mobile .m-replay .speed-group {
+  display: none;
+}
+.app-mobile .m-trade {
+  flex: none;
+  width: 88px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.app-mobile .m-trade .btn {
+  width: 100%;
+  min-height: 60px;
+  font-size: 17px;
+  font-weight: 700;
+}
+.app-mobile .m-trade-hint {
+  font-size: 10px;
+  color: var(--warn, #f0b90b);
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* ---- 底部抽屉 / 弹层（☰ 菜单、开仓、持仓共用） ---- */
+.app-mobile .sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 80;
+}
+.app-mobile .sheet-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.app-mobile .sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 88dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--bg-panel);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  transform: translateY(100%);
+  transition: transform 0.25s ease;
+  z-index: 81;
+}
+.app-mobile .sheet.open {
+  transform: translateY(0);
+}
+.app-mobile .sheet-grabber {
+  width: 40px;
+  height: 4px;
+  margin: 8px auto 2px;
+  background: var(--border);
+  border-radius: 2px;
+  flex: none;
+}
+.app-mobile .sheet-title {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 4px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.app-mobile .sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px;
+}
+
+/* ---- 抽屉内部：视图切换 / 分区 / 标的 / 设置 ---- */
+.app-mobile .m-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.app-mobile .m-nav-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.app-mobile .m-nav-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.app-mobile .m-section {
+  margin-bottom: 18px;
+}
+.app-mobile .m-section-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+/* 抽屉顶部市场切换器（币安式分段控件） */
+.app-mobile .m-market {
+  display: flex;
+  gap: 6px;
+}
+.app-mobile .m-market-btn {
+  flex: 1;
+  min-height: 44px;
+  padding: 6px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--panel-2, #1b2026);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.app-mobile .m-market-btn.active {
+  color: #0b0e11;
+  background: var(--accent, #fcd535);
+  border-color: var(--accent, #fcd535);
+}
+.app-mobile .m-market-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.app-mobile .m-jump {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.app-mobile .m-jump .tiny-input {
+  width: 88px;
+}
+
+/* 抽屉里把「起点 / 指标」弹层改成内联静态流（覆盖 usePopupPosition 的 fixed 内联样式） */
+.app-mobile .m-section .start-panel,
+.app-mobile .m-section .ind-panel {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-height: none !important;
+  box-shadow: none !important;
+  margin: 8px 0 0;
+}
+.app-mobile .m-section .start-trigger,
+.app-mobile .m-section .ind-trigger {
+  width: 100%;
+  justify-content: space-between;
+}
+
+/* 移动端其它视图（统计/胜率PK/设置库）也走可滚动布局 */
+.app-mobile .full-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---- 移动端图表区进一步压缩，把纵向空间让给 K 线 ---- */
+/* 工具栏：周期行 + OHLC 单行，不再纵向堆叠 */
+.app-mobile .chart-toolbar {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+}
+.app-mobile .period-nav {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+/* OHLC 详情：单行横向滚动，避免两行堆叠吃掉 K 线高度 */
+.app-mobile .ohlc-strip {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  overflow-x: auto;
+  font-size: 10px;
+  grid-template-columns: none;
+  -webkit-overflow-scrolling: touch;
+}
+.app-mobile .ohlc-strip .ohlc-cell,
+.app-mobile .ohlc-strip > span {
+  min-width: max-content;
+}
+/* 桌面向提示（含 ESC 字样）在移动端无意义，隐藏以省空间；解锁改点空白处 */
+.app-mobile .chart-foot {
+  display: none;
+}
+/* 顶栏保留紧凑市场标签（合约/现货/美股），避免 perp/spot 同名标的分不清；
+   完整的市场切换器在 ☰ 抽屉顶部（.m-market） */
+.app-mobile .m-ticker-badge {
+  flex: none;
+}
+.app-mobile .m-equity {
+  margin-left: 2px;
+}
+/* 抽屉内「跳到第 N 根」一行给点呼吸 */
+.app-mobile .m-jump {
+  gap: 8px;
+}
+

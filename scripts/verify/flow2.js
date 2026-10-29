@@ -81,26 +81,37 @@ async function runCase(browser, c) {
       ffillNotice: document.querySelector('.notice.info')?.textContent?.trim() || null,
     }));
 
-    // 0. 展开开仓面板（v3 起默认折叠，只留一个「开仓」按钮）
-    const hasTrigger = await page.$('.trade-open-trigger');
-    if (hasTrigger) {
-      await hasTrigger.click();
-      await sleep(600);
+    // 0. 展开开仓面板
+    //    桌面：点「开仓」折叠触发器；移动端：点底栏「开仓」按钮弹出 BottomSheet。
+    const isMobile = await page.evaluate(() => !!document.querySelector('.app-mobile'));
+    const scope = isMobile ? '.sheet.open' : '.side-area';
+    if (isMobile) {
+      const tradeBtn = await page.$('.app-mobile .m-trade .btn');
+      if (!tradeBtn) throw new Error('移动端找不到开仓按钮');
+      await tradeBtn.click();
+      await page.waitForSelector('.sheet.open', { timeout: 6000 });
+      await sleep(500);
+    } else {
+      const hasTrigger = await page.$('.trade-open-trigger');
+      if (hasTrigger) {
+        await hasTrigger.click();
+        await sleep(600);
+      }
     }
-    const panelOpened = await page.evaluate(() => !!document.querySelector('.side-area select'));
+    const panelOpened = await page.evaluate((s) => !!document.querySelector(s + ' select'), scope);
     if (!panelOpened) throw new Error('开仓面板未展开');
 
     // 1. 选设置
-    const setupValue = await page.evaluate(() => {
-      const s = document.querySelector('.side-area select');
-      if (!s) return null;
-      const opt = [...s.options].find((o) => o.value);
+    const setupValue = await page.evaluate((s) => {
+      const sel = document.querySelector(s + ' select');
+      if (!sel) return null;
+      const opt = [...sel.options].find((o) => o.value);
       if (!opt) return null;
       const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
-      setter.call(s, opt.value);
-      s.dispatchEvent(new Event('change', { bubbles: true }));
+      setter.call(sel, opt.value);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
       return opt.value;
-    });
+    }, scope);
     if (!setupValue) throw new Error('没有可选的开仓设置');
     await sleep(700);
 
@@ -120,13 +131,14 @@ async function runCase(browser, c) {
 
     // 3. 读取现价并设置贴近的止损/目标
     const priceText = await page.evaluate(
-      () => document.querySelector('.side-area .panel-head .muted')?.textContent?.trim(),
+      (s) => document.querySelector(s + ' .panel-head .muted')?.textContent?.trim(),
+      scope,
     );
     const price = Number(String(priceText).replace(/[^\d.]/g, ''));
     if (!Number.isFinite(price) || price <= 0) throw new Error('读不到现价: ' + priceText);
 
-    await page.evaluate(({ p, dec }) => {
-      const inputs = [...document.querySelectorAll('.side-area input[type=number]')];
+    await page.evaluate(({ p, dec, s }) => {
+      const inputs = [...document.querySelectorAll(s + ' input[type=number]')];
       const setVal = (el, v) => {
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(el, v);
@@ -135,29 +147,29 @@ async function runCase(browser, c) {
       // 精度按价格量级自适应：链上美股价格可能低到 0.1 美元级
       setVal(inputs[0], (p * 0.998).toFixed(dec)); // 止损
       setVal(inputs[1], (p * 1.002).toFixed(dec)); // 目标
-    }, { p: price, dec: price >= 100 ? 2 : price >= 1 ? 4 : 6 });
+    }, { p: price, dec: price >= 100 ? 2 : price >= 1 ? 4 : 6, s: scope });
     await sleep(600);
 
     // 4. 开仓
-    const opened = await page.evaluate(() => {
-      const b = [...document.querySelectorAll('.side-area button')].find((x) => x.textContent.includes('开仓'));
+    const opened = await page.evaluate((s) => {
+      const b = [...document.querySelectorAll(s + ' button')].find((x) => x.textContent.includes('开仓'));
       if (!b) return { ok: false, reason: '找不到开仓按钮' };
       if (b.disabled) {
         // 采集诊断信息
-        const boxes = [...document.querySelectorAll('.check-item input')];
+        const boxes = [...document.querySelectorAll(s + ' .check-item input')];
         const r = b.getBoundingClientRect();
         const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
         return {
           ok: false,
           reason: '按钮被禁用',
           diag: {
-            hints: [...document.querySelectorAll('.side-area .hint')].map((h) => h.textContent.trim()),
-            notices: [...document.querySelectorAll('.side-area .notice')].map((h) => h.textContent.trim()),
-            setupValue: document.querySelector('.side-area select')?.value,
+            hints: [...document.querySelectorAll(s + ' .hint')].map((h) => h.textContent.trim()),
+            notices: [...document.querySelectorAll(s + ' .notice')].map((h) => h.textContent.trim()),
+            setupValue: document.querySelector(s + ' select')?.value,
             checkboxCount: boxes.length,
             checkboxChecked: boxes.map((x) => x.checked),
-            numberInputs: [...document.querySelectorAll('.side-area input[type=number]')].map((x) => x.value),
-            priceText: document.querySelector('.side-area .panel-head .muted')?.textContent?.trim(),
+            numberInputs: [...document.querySelectorAll(s + ' input[type=number]')].map((x) => x.value),
+            priceText: document.querySelector(s + ' .panel-head .muted')?.textContent?.trim(),
             btnRect: { top: Math.round(r.top), h: Math.round(r.height) },
             elementAtBtn: hit ? hit.className + '|' + hit.tagName : null,
             vh: window.innerHeight,
@@ -167,7 +179,7 @@ async function runCase(browser, c) {
       }
       b.click();
       return { ok: true };
-    });
+    }, scope);
     if (!opened.ok) throw new Error('开仓失败: ' + opened.reason + ' | diag=' + JSON.stringify(opened.diag));
     await sleep(1600);
 
@@ -222,9 +234,14 @@ async function runCase(browser, c) {
     await page.screenshot({ path: path.join(OUT, `flow-${name}-after.png`) });
 
     // 7. 统计看板
-    await page.evaluate(() => {
-      [...document.querySelectorAll('.tab')].find((x) => x.textContent.includes('统计'))?.click();
-    });
+    //    桌面：顶部 .tab；移动端：☰ 抽屉内 .m-nav 的「统计看板」按钮。
+    await page.evaluate((mobile) => {
+      if (mobile) {
+        [...document.querySelectorAll('.app-mobile .m-nav button')].find((x) => x.textContent.includes('统计'))?.click();
+      } else {
+        [...document.querySelectorAll('.tab')].find((x) => x.textContent.includes('统计'))?.click();
+      }
+    }, isMobile);
     await sleep(4000);
     const stats = await page.evaluate(() => {
       const v = document.querySelector('.stats-view');

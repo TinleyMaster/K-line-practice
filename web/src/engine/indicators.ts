@@ -12,6 +12,9 @@
  *   - 不传 paneId             → 自动创建一个新的独立副图 pane
  */
 
+// 自定义指标注册（副作用导入）：趋势结构 TRENDSTRUCT
+import './trendIndicator';
+
 export type IndicatorGroup = 'overlay' | 'pane';
 
 export interface IndicatorSpec {
@@ -43,6 +46,7 @@ const OVERLAY: IndicatorSpec[] = [
   { name: 'SAR', label: 'SAR 抛物线', group: 'overlay', calcParams: [], defaultOn: false },
   { name: 'TRIX', label: 'TRIX 三重指数', group: 'overlay', calcParams: [12], defaultOn: false },
   { name: 'BIAS', label: 'BIAS 乖离率', group: 'overlay', calcParams: [6, 12, 24], defaultOn: false },
+  { name: 'TRENDSTRUCT', label: '趋势结构 (TrendK+EMA+防守位)', group: 'overlay', calcParams: [10, 30, 20, 21, 55, 144], defaultOn: false },
 ];
 
 /**
