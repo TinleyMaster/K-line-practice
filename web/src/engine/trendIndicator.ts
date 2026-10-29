@@ -126,10 +126,10 @@ registerIndicator({
       { color: '#9C27B0', size: 1.5, style: 'dashed' },
     ],
     circles: [
-      { upColor: '#0ECB81', downColor: '#0ECB81', noChangeColor: '#0ECB81' }, // trendBull
-      { upColor: '#F6465D', downColor: '#F6465D', noChangeColor: '#F6465D' }, // trendBear
-      { upColor: '#F6465D', downColor: '#F6465D', noChangeColor: '#F6465D' }, // midHigh
-      { upColor: '#0ECB81', downColor: '#0ECB81', noChangeColor: '#0ECB81' }, // midLow
+      { upColor: '#0ECB81', downColor: '#0ECB81', noChangeColor: '#0ECB81' }, // trendBull 多头趋势K（绿）
+      { upColor: '#F6465D', downColor: '#F6465D', noChangeColor: '#F6465D' }, // trendBear 空头趋势K（红）
+      { upColor: '#FFA726', downColor: '#FFA726', noChangeColor: '#FFA726' }, // midHigh 中期高点（橙）
+      { upColor: '#42A5F5', downColor: '#42A5F5', noChangeColor: '#42A5F5' }, // midLow 中期低点（蓝）
     ],
   },
 });
