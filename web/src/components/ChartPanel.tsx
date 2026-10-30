@@ -205,6 +205,21 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
     tooltip: {
       showRule: 'follow_cross',
       showType: 'standard',
+      rect: {
+        position: 'fixed',
+        offsetLeft: 0,
+        offsetTop: 0,
+        offsetRight: 10,
+        offsetBottom: 10,
+        paddingLeft: 8,
+        paddingRight: 8,
+        paddingTop: 6,
+        paddingBottom: 6,
+        borderSize: 1,
+        borderColor: '#2B3139',
+        borderRadius: 4,
+        color: '#1E2329',
+      },
     },
   },
   xAxis: {
