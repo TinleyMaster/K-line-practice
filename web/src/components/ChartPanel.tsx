@@ -555,72 +555,25 @@ function setOffsetRight(chart: Chart, px: number) {
 }
 
 /**
- * 各档的「可见根数」上限 —— 直接由**预热根数**决定（= 覆盖全部预热历史）。
+ * K 线间距（barSpace）统一为固定像素宽度，让 15m / 1h / 4h 的蜡烛看起来一样大。
  *
- * 1h 240 根 / 4h 60 根 天然是 **4:1** ⇒ barSpace 也天然 4:1 ⇒
- * 同一时刻在 1h 与 4h 下落在同一个横坐标上（像素级对齐）。
+ * 旧逻辑（v6.3）：barSpace 按周期成 4:1（4h 的蜡烛是 1h 的 4 倍宽），用于各周期
+ * 时间轴像素级对齐。但用户实测反馈 4h 太大、1h 太小、可读性差，故改为统一间距。
+ * 代价：切周期时时间轴不再严格对齐，但每个周期 K 线形态清晰、大小一致。
  *
- * ⚠️ 这里的取舍（v6.3 定稿）：
- *   1h 档 240 根 ⇒ 宽屏下每根约 4px，实体看得清阴阳与影线。
- *   4h 档 60 根（≈16px/根）⇒ 刚好覆盖它自己的全部预热（60 根），
- *   「起点前的历史在视野内」这个 v5 核心功能不退化。
- *
- *   ⚠️ 曾经试过「1h 480 根（≈2px）+ 4h 120 根」—— 严格对齐也做到了，
- *   但**用户实测反馈「1h k线图比其他两个图表显示都小」**：
- *   2px/根的 K 线实体细到看不出形态。
- *   ⇒ 教训：对齐不能以牺牲主周期可读性为代价。
- */
-const VISIBLE_BARS: Record<ChartPeriod, number> = { '1h': 240, '4h': 60, '15m': 960 };
-
-/**
- * 每根 K 线的最小像素宽度。
- *
- * 1h / 4h / 15m 都是 4px：K 线实体至少要 4px 才看得出阴阳与影线。
- * （试过 1h/4h 用 2px，用户反馈「1h 比另外两个图表都小」—— 实体细到看不出形态。）
- *
- * 15m 本来就是对齐的例外档，跨度独立于 1h/4h。
- */
-const MIN_BAR_PX = 4;
-const MIN_BAR_PX_FINE = 4;
-
-/**
- * 把可见根数调成目标值 —— **1h ↔ 4h 的像素级对齐全靠这个函数**。
- *
- * klinecharts 的 x 轴是**按索引等距**排的（没有时间轴模式），
- * 所以「同一时刻落在同一横坐标」这件事等价于：
- *
- *   (总根数 − 该时刻的下标) × barSpace   在各周期下必须相等
- *
- * 而「距右端的根数」按周期成反比（同一段时间：1h 480 根 = 4h 120 根），
- * 因此只要 **barSpace 也按周期成正比**（4h 的 barSpace = 1h 的 4 倍），
- * 同一时刻就必然落在同一个像素上。
- *
- * ⇒ 做法：以 1h 档为基准定一个「可见根数 n」（必须是 4 的倍数），
- *   1h 显示 n 根、4h 显示 n/4 根，barSpace = 可用宽度 / 根数 ⇒ 自动 4:1。
- *
- * ⚠️ 15m 是例外：15m×4 = 1920 根，按 4px/根算需要 7680px 宽 —— 任何屏幕都放不下。
- *   所以 15m 只能保证**右端锚定**（右端始终是「当前时刻」那一根，与 1h/4h 同一像素），
- *   跨度按容器宽度自适应。这是像素物理限制，不是实现偷懒。
+ * 1h 略微放宽（6.5 vs 6），满足「1h 比现在稍大」的诉求。
  */
 function applyTargetBarSpace(chart: Chart, period: ChartPeriod) {
   const size = chart.getSize();
   if (!size || !size.width) return;
-  // 右侧价格轴占 ~64px，再留一点余量
-  const usable = Math.max(160, size.width - 72);
 
-  // 1h 为基准：n 根 1h ⇔ n/4 根 4h（n 取 4 的倍数，4h 桶才对得上）
-  const maxByWidth1h = Math.floor(usable / MIN_BAR_PX);
-  const n1h = Math.max(4, Math.floor(Math.min(VISIBLE_BARS['1h'], maxByWidth1h) / 4) * 4);
-
-  const byPeriod: Record<ChartPeriod, number> = {
-    '1h': n1h,
-    '4h': n1h / 4,
-    '15m': Math.min(VISIBLE_BARS['15m'], Math.floor(usable / MIN_BAR_PX_FINE)),
-  };
-  const target = Math.max(4, Math.round(byPeriod[period]));
-  const space = Math.max(1.5, Math.min(48, usable / target));
+  // 统一 K 线宽度：15m / 1h / 4h 用相同的 barSpace（每根间距一致），
+  // 不再按周期成 4:1（那样 4h 的 K 线会是 1h 的 4 倍宽）。
+  // 1h 略微放宽一点，满足「1h 比现在稍大」的诉求。
+  const BASE_BAR_PX = period === '1h' ? 6.5 : 6;
+  const space = Math.max(1.5, Math.min(40, BASE_BAR_PX));
   chart.setBarSpace(space);
-  // 右侧留白随 barSpace 反向补偿 —— 各周期的时间轴才会落在同一像素上
+  // 右侧留白随 barSpace 反向补偿，避免切周期时时间轴整体平移
   setOffsetRight(chart, Math.max(8, OFFSET_RIGHT_BASE - space / 2));
 }
 

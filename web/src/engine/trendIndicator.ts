@@ -24,10 +24,10 @@ registerIndicator({
     { key: 'emaMid', title: 'EMA55: ', type: 'line' },
     { key: 'emaSlow', title: 'EMA144: ', type: 'line' },
     { key: 'defense', title: '防守位: ', type: 'line' },
-    { key: 'trendBull', title: '多头趋势K: ', type: 'circle' },
-    { key: 'trendBear', title: '空头趋势K: ', type: 'circle' },
-    { key: 'midHigh', title: '中期高点: ', type: 'circle' },
-    { key: 'midLow', title: '中期低点: ', type: 'circle' },
+    { key: 'trendBull', title: '多头趋势K: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
+    { key: 'trendBear', title: '空头趋势K: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
+    { key: 'midHigh', title: '中期高点: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
+    { key: 'midLow', title: '中期低点: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
   ],
   calc: (dataList, indicator) => {
     const params = indicator.calcParams as number[];
