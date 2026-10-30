@@ -16,7 +16,7 @@ registerIndicator({
   name: 'TRENDSTRUCT',
   shortName: 'TrendStruct',
   series: 'price',
-  calcParams: [10, 30, 20, 21, 55, 144],
+  calcParams: [30, 20, 20, 21, 55, 144],
   precision: 2,
   shouldOhlc: true,
   figures: [
@@ -64,11 +64,12 @@ registerIndicator({
 
       let midHigh: number | undefined;
       let midLow: number | undefined;
-      if (i >= 2) {
-        const p1 = dataList[i - 1];
-        const p2 = dataList[i - 2];
-        if (k.high > p1.high && k.high > p2.high) midHigh = k.high;
-        if (k.low < p1.low && k.low < p2.low) midLow = k.low;
+      // 中期高低点：要求比前 4 根都高/低（swing point），避免每根 K 线都标记
+      if (i >= 4) {
+        const prevH = [dataList[i-1].high, dataList[i-2].high, dataList[i-3].high, dataList[i-4].high];
+        const prevL = [dataList[i-1].low, dataList[i-2].low, dataList[i-3].low, dataList[i-4].low];
+        if (k.high > Math.max(...prevH)) midHigh = k.high;
+        if (k.low < Math.min(...prevL)) midLow = k.low;
       }
       if (midHigh !== undefined) lastMidHigh = midHigh;
       if (midLow !== undefined) lastMidLow = midLow;
