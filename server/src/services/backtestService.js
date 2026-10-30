@@ -391,6 +391,7 @@ export function runBacktestOnBars(bars, params) {
 export async function runBacktest(params) {
   const { symbol, market = 'perp', limit = 20000, offset, since, until, splitRatio = null, ...rest } = params || {};
   const bars = await loadBars(symbol, market, limit, offset, since, until);
+  console.error('[DBG] bars=' + bars.length + ' first=' + new Date(bars[0]?.time).toISOString());
   if (splitRatio && splitRatio > 0 && splitRatio < 1) {
     const splitIdx = Math.floor(bars.length * splitRatio);
     const trainBars = bars.slice(0, splitIdx);
