@@ -416,6 +416,65 @@ export async function runBacktest(params) {
   return runBacktestOnBars(bars, rest);
 }
 
+export async function validateIndicator(params) {
+  const {
+    symbol, market = 'perp', limit = 5000, since, until,
+    minBody = 10, maxShadow = 30, emaFast = 21, emaMid = 55, emaSlow = 144,
+    forwardBars = 5, side = 'both',
+  } = params || {};
+  const bars = await loadBars(symbol, market, limit, 0, since, until);
+  if (bars.length < 50) throw new Error('数据不足');
+
+  const closes = bars.map((b) => b.close);
+  const eFast = emaSeries(closes, emaFast);
+  const eMid = emaSeries(closes, emaMid);
+  const eSlow = emaSeries(closes, emaSlow);
+  const trendFlags = bars.map((b) => isTrendK(b, minBody, maxShadow));
+
+  let longSignals = 0, shortSignals = 0;
+  let longWins = 0, shortWins = 0;
+  let longMoveSum = 0, shortMoveSum = 0;
+  const signals = [];
+
+  for (let i = 0; i < bars.length - forwardBars; i++) {
+    const emaBull = eFast[i] != null && eMid[i] != null && eSlow[i] != null && eFast[i] > eMid[i] && eMid[i] > eSlow[i];
+    const emaBear = eFast[i] != null && eMid[i] != null && eSlow[i] != null && eFast[i] < eMid[i] && eMid[i] < eSlow[i];
+    const tf = trendFlags[i];
+    const futureClose = bars[i + forwardBars].close;
+    const movePct = (futureClose - bars[i].close) / bars[i].close * 100;
+
+    if (side !== 'short' && emaBull && tf.bull) {
+      longSignals++;
+      if (movePct > 0) longWins++;
+      longMoveSum += movePct;
+      signals.push({ time: bars[i].time, side: 'long', movePct });
+    }
+    if (side !== 'long' && emaBear && tf.bear) {
+      shortSignals++;
+      if (movePct < 0) shortWins++;
+      shortMoveSum += -movePct;
+      signals.push({ time: bars[i].time, side: 'short', movePct });
+    }
+  }
+
+  const totalSignals = longSignals + shortSignals;
+  const totalWins = longWins + shortWins;
+  return {
+    bars: bars.length,
+    forwardBars,
+    longSignals,
+    shortSignals,
+    totalSignals,
+    signalDensity: (totalSignals / bars.length * 100).toFixed(2) + '%',
+    longWinRate: longSignals ? (longWins / longSignals * 100).toFixed(1) + '%' : 'n/a',
+    shortWinRate: shortSignals ? (shortWins / shortSignals * 100).toFixed(1) + '%' : 'n/a',
+    overallWinRate: totalSignals ? (totalWins / totalSignals * 100).toFixed(1) + '%' : 'n/a',
+    longAvgMove: longSignals ? (longMoveSum / longSignals).toFixed(3) + '%' : 'n/a',
+    shortAvgMove: shortSignals ? (shortMoveSum / shortSignals).toFixed(3) + '%' : 'n/a',
+    signals: signals.slice(0, 100),
+  };
+}
+
 export async function runOptimization(baseParams, grid) {
   const { symbol, market = 'perp', limit = 20000, since, until, splitRatio = null } = baseParams || {};
   const bars = await loadBars(symbol, market, limit, 0, since, until);

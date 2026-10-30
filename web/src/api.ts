@@ -171,4 +171,6 @@ export const api = {
     request<Record<string, unknown>>('/backtest/run', { method: 'POST', body: JSON.stringify(params) }),
   backtestOptimize: (params: Record<string, unknown>) =>
     request<Record<string, unknown>>('/backtest/optimize', { method: 'POST', body: JSON.stringify(params) }),
+  backtestValidate: (params: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/backtest/validate', { method: 'POST', body: JSON.stringify(params) }),
 };
