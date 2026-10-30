@@ -16,7 +16,7 @@ registerIndicator({
   name: 'TRENDSTRUCT',
   shortName: 'TrendStruct',
   series: 'price',
-  calcParams: [30, 20, 4, 21, 55, 144],
+  calcParams: [40, 15, 6, 21, 55, 144],
   precision: 2,
   shouldOhlc: true,
   figures: [
