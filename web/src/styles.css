@@ -1633,9 +1633,9 @@ textarea {
   .topbar {
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
+    gap: 4px;
     height: auto;
-    padding: 8px 10px;
+    padding: 4px 8px;
   }
 
   .topbar-mid {
@@ -1702,8 +1702,8 @@ textarea {
     position: sticky;
     top: 0;
     z-index: 30;
-    padding: 0 8px;
-    height: 42px;
+    padding: 0 4px;
+    height: 34px;
     overflow-x: auto;
   }
 
@@ -2903,7 +2903,8 @@ body.popup-open .ind-panel {
 .app-mobile .m-24h {
   flex: none;
   display: flex;
-  padding: 2px 12px;
+  padding: 1px 8px;
+  font-size: 10px;
   gap: 16px;
   padding: 4px 12px;
   font-size: 11px;
@@ -3163,8 +3164,8 @@ body.popup-open .ind-panel {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 4px;
+  padding: 2px 6px;
 }
 .app-mobile .period-nav {
   flex: 1 1 auto;
