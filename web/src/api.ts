@@ -165,4 +165,10 @@ export const api = {
   me: () => request<{ user: User | null }>('/auth/me'),
 
   pk: () => request<PkResponse>('/auth/pk'),
+
+  /* ---- 回测（v7）---- */
+  backtestRun: (params: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/backtest/run', { method: 'POST', body: JSON.stringify(params) }),
+  backtestOptimize: (params: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/backtest/optimize', { method: 'POST', body: JSON.stringify(params) }),
 };

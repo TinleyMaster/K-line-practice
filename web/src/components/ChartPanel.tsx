@@ -752,6 +752,8 @@ interface Props {
   /** 练习起点（1h 索引）—— 用于确定预热窗口左端与起点标记 */
   startCursor: number;
   openTrade: OpenTrade | null;
+  /** 回测买卖点标记（可选） */
+  backtestMarkers?: Array<{ time: number; price: number; side: 'long' | 'short'; kind: 'entry' | 'exit' }>;
   /** 4h 周期启用的指标名列表 */
   indicators4h: string[];
   /** 1h 周期启用的指标名列表（15m 复用这一套） */
@@ -770,6 +772,7 @@ export function ChartPanel({
   cursorMs,
   startCursor,
   openTrade,
+  backtestMarkers,
   indicators4h,
   indicators1h,
   period,
@@ -1247,6 +1250,27 @@ export function ChartPanel({
       });
     }
   }, [openTrade, revealed1h, revealed15m, period]);
+
+  // ---------- 回测买卖点标记 ----------
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.removeOverlay({ groupId: 'backtest-markers' });
+    if (!backtestMarkers || !backtestMarkers.length) return;
+    const overlays = backtestMarkers.map((m) => ({
+      name: 'backtestMarker',
+      groupId: 'backtest-markers',
+      points: [{ timestamp: m.time, value: m.price }],
+      lock: true,
+      extendData: {
+        label: m.kind === 'entry' ? (m.side === 'long' ? 'B' : 'S') : (m.side === 'long' ? 'TP/SL' : 'TP/SL'),
+        color: m.kind === 'entry' ? (m.side === 'long' ? '#0ECB81' : '#F6465D') : '#848E9C',
+        kind: m.kind,
+        side: m.side,
+      },
+    }));
+    chart.createOverlay(overlays as never);
+  }, [backtestMarkers]);
 
   // ---------- 详情：锁定 > 悬停 > 最新一根 ----------
   const detail = useMemo(() => {

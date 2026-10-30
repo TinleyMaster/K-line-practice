@@ -10,7 +10,7 @@
  * 通过 klinecharts 的 registerIndicator 注册，名字为 'TRENDSTRUCT'，
  * 以便 IndicatorPicker / ChartPanel 的通用装载逻辑能识别它。
  */
-import { registerIndicator } from 'klinecharts';
+import { registerIndicator, registerOverlay } from 'klinecharts';
 
 registerIndicator({
   name: 'TRENDSTRUCT',
@@ -131,5 +131,32 @@ registerIndicator({
       { upColor: '#FFA726', downColor: '#FFA726', noChangeColor: '#FFA726' }, // midHigh 中期高点（橙）
       { upColor: '#42A5F5', downColor: '#42A5F5', noChangeColor: '#42A5F5' }, // midLow 中期低点（蓝）
     ],
+  },
+});
+
+// 回测买卖点标记 overlay
+registerOverlay({
+  name: 'backtestMarker',
+  totalStep: 1,
+  createPointFigures: ({ coordinates, overlay }) => {
+    const c = coordinates[0];
+    const ext = (overlay.extendData || {}) as { label?: string; color?: string; kind?: string; side?: string };
+    const color = ext.color || '#FCD535';
+    const label = ext.label || '';
+    const isEntry = ext.kind === 'entry';
+    // 箭头：入场向上/向下三角，出场用小圆
+    if (isEntry) {
+      const tri = ext.side === 'short'
+        ? [{ x: c.x, y: c.y }, { x: c.x - 6, y: c.y - 10 }, { x: c.x + 6, y: c.y - 10 }]
+        : [{ x: c.x, y: c.y }, { x: c.x - 6, y: c.y + 10 }, { x: c.x + 6, y: c.y + 10 }];
+      return [
+        { type: 'polygon', attrs: { coordinates: tri }, styles: { style: 'fill', color, borderColor: color, borderSize: 1 } },
+        { type: 'text', attrs: { x: c.x, y: ext.side === 'short' ? c.y - 16 : c.y + 16, text: label, align: 'center', baseline: 'middle' }, styles: { color, size: 10, weight: 'bold' } },
+      ];
+    }
+    return [
+      { type: 'circle', attrs: { x: c.x, y: c.y, r: 4 }, styles: { style: 'fill', color, borderColor: color, borderSize: 1 } },
+      { type: 'text', attrs: { x: c.x, y: c.y + 14, text: label, align: 'center', baseline: 'middle' }, styles: { color, size: 9 } },
+    ];
   },
 });

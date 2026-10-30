@@ -14,6 +14,7 @@ import { IndicatorPicker } from './components/IndicatorPicker';
 import { StartTimePicker } from './components/StartTimePicker';
 import { AuthPanel } from './components/AuthPanel';
 import { PkView } from './components/PkView';
+import { BacktestView } from './components/BacktestView';
 import { PendingJournal } from './components/PendingJournal';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { MobileTopBar } from './components/MobileTopBar';
@@ -21,7 +22,7 @@ import { MobilePractice } from './components/MobilePractice';
 import { fmtPrice, fmtTime } from './engine/bars';
 import { priceBarAt } from './store/usePracticeStore';
 
-type View = 'practice' | 'stats' | 'setups' | 'pk';
+type View = 'practice' | 'stats' | 'setups' | 'pk' | 'backtest';
 /** 当前打开的弹出面板（互斥 —— 两个 fixed 弹窗同时存在会互相盖住） */
 type Popup = 'start' | 'indicators' | null;
 
@@ -32,6 +33,7 @@ export default function App() {
   const [popup, setPopup] = useState<Popup>(null);
   /** 是否展开登录面板 */
   const [authOpen, setAuthOpen] = useState(false);
+  const [backtestMarkers, setBacktestMarkers] = useState<{ time: number; price: number; side: 'long' | 'short'; kind: 'entry' | 'exit' }[]>([]);
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -199,6 +201,9 @@ export default function App() {
         <button className={`tab ${view === 'pk' ? 'active' : ''}`} onClick={() => { setView('pk'); setStatsKey((k) => k + 1); }}>
           胜率 PK
         </button>
+        <button className={`tab ${view === 'backtest' ? 'active' : ''}`} onClick={() => setView('backtest')}>
+          回测
+        </button>
         <button className={`tab ${view === 'setups' ? 'active' : ''}`} onClick={() => setView('setups')}>
           设置库
         </button>
@@ -223,6 +228,7 @@ export default function App() {
             popup={popup}
             setPopup={setPopup}
             setAuthOpen={setAuthOpen}
+            backtestMarkers={backtestMarkers}
           />
         ) : (
         <main className="practice-layout">
@@ -254,6 +260,7 @@ export default function App() {
                   indicators1h={store.indicators1h}
                   period={store.chartPeriod}
                   onPeriodChange={store.setChartPeriod}
+                  backtestMarkers={backtestMarkers}
                 />
 
                 <ReplayControls
@@ -401,6 +408,12 @@ export default function App() {
       {view === 'pk' && (
         <main className="full-view">
           <PkView refreshKey={statsKey} />
+        </main>
+      )}
+
+      {view === 'backtest' && (
+        <main className="full-view">
+          <BacktestView onShowMarkers={(m) => { setBacktestMarkers(m); setView('practice'); }} />
         </main>
       )}
 

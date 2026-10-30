@@ -13,6 +13,7 @@ import { setupsRouter } from './routes/setups.js';
 import { practiceRouter } from './routes/practice.js';
 import { statsRouter } from './routes/stats.js';
 import { authRouter } from './routes/auth.js';
+import { backtestRouter } from './routes/backtest.js';
 import { attachUser } from './services/authService.js';
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api', attachUser);
 app.use('/api/auth', authRouter);
 app.use('/api', practiceRouter);
 app.use('/api/stats', statsRouter);
+app.use('/api/backtest', backtestRouter);
 
 // 生产环境：托管前端静态资源
 if (fs.existsSync(config.webDist)) {

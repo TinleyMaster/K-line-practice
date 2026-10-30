@@ -26,6 +26,7 @@ interface Props {
   popup: 'start' | 'indicators' | null;
   setPopup: (p: 'start' | 'indicators' | null) => void;
   setAuthOpen: (o: boolean) => void;
+  backtestMarkers?: { time: number; price: number; side: 'long' | 'short'; kind: 'entry' | 'exit' }[];
 }
 
 /**
@@ -44,6 +45,7 @@ export function MobilePractice({
   popup,
   setPopup,
   setAuthOpen,
+  backtestMarkers,
 }: Props) {
   const store = usePracticeStore();
   const [positionSheet, setPositionSheet] = useState(false);
@@ -109,6 +111,7 @@ export function MobilePractice({
               indicators1h={store.indicators1h}
               period={store.chartPeriod}
               onPeriodChange={store.setChartPeriod}
+              backtestMarkers={backtestMarkers}
             />
 
             {stats && (
