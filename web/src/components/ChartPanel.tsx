@@ -220,6 +220,36 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
         borderRadius: 4,
         color: '#1E2329',
       },
+      legend: {
+        color: '#848E9C',
+        size: 11,
+        family: 'inherit',
+        weight: 'normal',
+        template: (data: any) => {
+          const bar = data?.current;
+          if (!bar) return [];
+          const prev = data?.prev;
+          const fmt = (v: number | null | undefined) =>
+            v == null || !Number.isFinite(v) ? 'n/a' : v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+          const chg = prev ? bar.close - prev.close : 0;
+          const chgPct = prev && prev.close ? (chg / prev.close) * 100 : 0;
+          const amp = prev && prev.close ? ((bar.high - bar.low) / prev.close) * 100 : 0;
+          const up = chg >= 0;
+          const col = up ? '#0ECB81' : '#F6465D';
+          const compact = (v: number) => (Math.abs(v) >= 1000 ? (v / 1000).toFixed(2) + 'K' : v.toFixed(2));
+          return [
+            { title: '时间', value: new Date(bar.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) },
+            { title: '开', value: fmt(bar.open) },
+            { title: '高', value: fmt(bar.high) },
+            { title: '低', value: fmt(bar.low) },
+            { title: '收', value: { text: fmt(bar.close), color: col } },
+            { title: '涨跌', value: { text: `${up ? '+' : ''}${chg.toFixed(2)} (${chgPct.toFixed(2)}%)`, color: col } },
+            { title: '振幅', value: `${amp.toFixed(2)}%` },
+            { title: '量', value: compact(bar.volume ?? 0) },
+            { title: '额', value: compact(bar.turnover ?? 0) },
+          ];
+        },
+      },
     },
   },
   xAxis: {
