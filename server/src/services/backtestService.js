@@ -268,7 +268,8 @@ export async function runBacktest(params) {
     const testBars = bars.slice(splitIdx);
     const train = runBacktestOnBars(trainBars, rest);
     const test = runBacktestOnBars(testBars, rest);
-    return { ...train, stats: test.stats, trainStats: train.stats, testStats: test.stats, testTrades: test.trades, testEquity: test.equity, splitIdx, bars: bars.length };
+    const useTest = (test.stats.trades ?? 0) > 0;
+    return { ...train, stats: useTest ? test.stats : train.stats, trainStats: train.stats, testStats: test.stats, testTrades: test.trades, testEquity: test.equity, splitIdx, bars: bars.length };
   }
   return runBacktestOnBars(bars, rest);
 }
@@ -306,8 +307,11 @@ export async function runOptimization(baseParams, grid) {
   }
   // rank by test totalR if available, else train totalR
   results.sort((a, b) => {
-    const aR = (a.testStats?.totalR ?? a.trainStats.totalR);
-    const bR = (b.testStats?.totalR ?? b.trainStats.totalR);
+    const aHasTest = (a.testStats?.trades ?? 0) > 0;
+    const bHasTest = (b.testStats?.trades ?? 0) > 0;
+    const aR = aHasTest ? (a.testStats?.totalR ?? 0) : a.trainStats.totalR;
+    const bR = bHasTest ? (b.testStats?.totalR ?? 0) : b.trainStats.totalR;
+    if (aHasTest !== bHasTest) return aHasTest ? -1 : 1;
     return bR - aR || (b.testStats?.winRate ?? b.trainStats.winRate) - (a.testStats?.winRate ?? a.trainStats.winRate);
   });
   return { totalCombos: combos.length, runCombos: runCombos.length, results: results.slice(0, 50), splitRatio };
