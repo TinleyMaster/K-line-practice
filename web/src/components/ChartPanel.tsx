@@ -207,14 +207,12 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
       showType: 'standard',
       rect: {
         position: 'fixed',
-        offsetLeft: 0,
-        offsetTop: 0,
-        offsetRight: 10,
-        offsetBottom: 10,
-        paddingLeft: 8,
-        paddingRight: 8,
-        paddingTop: 6,
-        paddingBottom: 6,
+        offsetLeft: 8,
+        offsetTop: 8,
+        paddingLeft: 6,
+        paddingRight: 6,
+        paddingTop: 4,
+        paddingBottom: 4,
         borderSize: 1,
         borderColor: '#2B3139',
         borderRadius: 4,
@@ -222,7 +220,7 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
       },
       legend: {
         color: '#848E9C',
-        size: 11,
+        size: 10,
         family: 'inherit',
         weight: 'normal',
         template: (data: any) => {
@@ -233,7 +231,6 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
             v == null || !Number.isFinite(v) ? 'n/a' : v.toLocaleString('en-US', { maximumFractionDigits: 2 });
           const chg = prev ? bar.close - prev.close : 0;
           const chgPct = prev && prev.close ? (chg / prev.close) * 100 : 0;
-          const amp = prev && prev.close ? ((bar.high - bar.low) / prev.close) * 100 : 0;
           const up = chg >= 0;
           const col = up ? '#0ECB81' : '#F6465D';
           const compact = (v: number) => (Math.abs(v) >= 1000 ? (v / 1000).toFixed(2) + 'K' : v.toFixed(2));
@@ -244,9 +241,7 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
             { title: '低', value: fmt(bar.low) },
             { title: '收', value: { text: fmt(bar.close), color: col } },
             { title: '涨跌', value: { text: `${up ? '+' : ''}${chg.toFixed(2)} (${chgPct.toFixed(2)}%)`, color: col } },
-            { title: '振幅', value: `${amp.toFixed(2)}%` },
             { title: '量', value: compact(bar.volume ?? 0) },
-            { title: '额', value: compact(bar.turnover ?? 0) },
           ];
         },
       },

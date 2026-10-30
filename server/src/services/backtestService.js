@@ -26,12 +26,13 @@ function isTrendK(bar, minBody, maxShadow) {
 function midPoints(bars, win = 3) {
   const highs = new Array(bars.length).fill(null);
   const lows = new Array(bars.length).fill(null);
-  // 真正的拐点：bar i 的 high 必须是 [i-win, i+win] 窗口内的最高，low 必须是最低
+  // 真正的拐点：左侧 win 根 + 右侧 1 根都更低/更高（右侧只等 1 根，避免滞后）
+  const rightWin = 1;
   for (let i = 0; i < bars.length; i++) {
-    if (i - win < 0 || i + win >= bars.length) continue;
+    if (i - win < 0 || i + rightWin >= bars.length) continue;
     let isH = true;
     let isL = true;
-    for (let j = i - win; j <= i + win; j++) {
+    for (let j = i - win; j <= i + rightWin; j++) {
       if (j === i) continue;
       if (bars[j].high >= bars[i].high) isH = false;
       if (bars[j].low <= bars[i].low) isL = false;

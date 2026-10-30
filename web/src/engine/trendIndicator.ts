@@ -33,19 +33,20 @@ registerIndicator({
     const params = indicator.calcParams as number[];
     const minBody = Number(params?.[0] ?? 10);
     const maxShadow = Number(params?.[1] ?? 30);
-    const swingWin = Math.max(1, Number(params?.[2] ?? 3)); // 左右各 swingWin 根才确认拐点
+    const swingWin = Math.max(1, Number(params?.[2] ?? 6)); // 左侧窗口：与之前几根比
+    const rightWin = 1; // 右侧只等 1 根确认 ⇒ 拐点近乎实时出现，不再滞后 6 根
     const fastP = Math.max(1, Number(params?.[3] ?? 21));
     const midP = Math.max(1, Number(params?.[4] ?? 55));
     const slowP = Math.max(1, Number(params?.[5] ?? 144));
 
-    // 先在整个数据上计算 swing high / low（必须左右两边都更低/更高才算拐点）
+    // 先在整个数据上计算 swing high / low：左侧 swingWin 根 + 右侧 rightWin 根都更低/更高
     const swingHigh: boolean[] = new Array(dataList.length).fill(false);
     const swingLow: boolean[] = new Array(dataList.length).fill(false);
     for (let i = 0; i < dataList.length; i++) {
-      if (i - swingWin < 0 || i + swingWin >= dataList.length) continue;
+      if (i - swingWin < 0 || i + rightWin >= dataList.length) continue;
       let isH = true;
       let isL = true;
-      for (let j = i - swingWin; j <= i + swingWin; j++) {
+      for (let j = i - swingWin; j <= i + rightWin; j++) {
         if (j === i) continue;
         if (dataList[j].high >= dataList[i].high) isH = false;
         if (dataList[j].low <= dataList[i].low) isL = false;
@@ -126,8 +127,37 @@ registerIndicator({
         trendBear,
         midHigh,
         midLow,
+        lastMidHigh,
+        lastMidLow,
       };
     });
+  },
+  createTooltipDataSource: (params) => {
+    const { indicator, crosshair } = params as {
+      indicator: { result: Array<Record<string, number | null | undefined>> };
+      crosshair: { dataIndex?: number };
+    };
+    const idx = crosshair?.dataIndex;
+    const result = indicator?.result;
+    const fmt = (v: number | null | undefined) =>
+      v == null || !Number.isFinite(v as number) ? '—' : (v as number).toLocaleString('en-US', { maximumFractionDigits: 1 });
+    if (idx == null || !result || !result[idx]) {
+      return { name: '趋势结构', calcParamsText: '', features: [], legends: [] };
+    }
+    const cur = result[idx];
+    const trend = cur.trendBull != null ? '多' : cur.trendBear != null ? '空' : '无';
+    const trendColor = cur.trendBull != null ? '#0ECB81' : cur.trendBear != null ? '#F6465D' : '#848E9C';
+    return {
+      name: '趋势结构',
+      calcParamsText: '',
+      features: [],
+      legends: [
+        { title: '防守位', value: fmt(cur.defense) },
+        { title: '趋势K', value: { text: trend, color: trendColor } },
+        { title: '近期高点', value: fmt(cur.lastMidHigh) },
+        { title: '近期低点', value: fmt(cur.lastMidLow) },
+      ],
+    };
   },
   styles: {
     lines: [
