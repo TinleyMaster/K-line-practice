@@ -65,6 +65,7 @@ export function runBacktestOnBars(bars, params) {
     tpMode = 'rMultiple',
     timeStop = null,
     side = 'both',
+    signalMode = 'strict',
   } = params || {};
 
   if (bars.length < 100) throw new Error('数据不足');
@@ -154,7 +155,22 @@ export function runBacktestOnBars(bars, params) {
       const wantLong = side === 'both' || side === 'long';
       const wantShort = side === 'both' || side === 'short';
 
-      if (wantLong && trendActiveLong) {
+      if (signalMode === 'loose' && wantLong && emaBull && tf.bull && !openTrade) {
+        const stopLoss = stopMode === 'defense' ? (defenseLow[i] ?? bar.low) : bar.close * (1 - stopPct / 100);
+        if (stopLoss < bar.close) {
+          const risk = bar.close - stopLoss;
+          const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * tpR : null;
+          openTrade = {
+            side: 'long',
+            entryTime: bar.time,
+            entryPrice: bar.close,
+            entryIdx: i,
+            stopLoss,
+            takeProfit,
+            tpR,
+          };
+        }
+      } else if (wantLong && trendActiveLong) {
         if (inPullbackLong && tf.bull) {
           const stopLoss = stopMode === 'defense' ? (defenseLow[i] ?? bar.low) : bar.close * (1 - stopPct / 100);
           if (stopLoss < bar.close) {
@@ -184,7 +200,22 @@ export function runBacktestOnBars(bars, params) {
         pullbackLowLong = null;
       }
 
-      if (!openTrade && wantShort && trendActiveShort) {
+      if (signalMode === 'loose' && wantShort && emaBear && tf.bear && !openTrade) {
+        const stopLoss = stopMode === 'defense' ? (defenseHigh[i] ?? bar.high) : bar.close * (1 + stopPct / 100);
+        if (stopLoss > bar.close) {
+          const risk = stopLoss - bar.close;
+          const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * tpR : null;
+          openTrade = {
+            side: 'short',
+            entryTime: bar.time,
+            entryPrice: bar.close,
+            entryIdx: i,
+            stopLoss,
+            takeProfit,
+            tpR,
+          };
+        }
+      } else if (!openTrade && wantShort && trendActiveShort) {
         if (inPullbackShort && tf.bear) {
           const stopLoss = stopMode === 'defense' ? (defenseHigh[i] ?? bar.high) : bar.close * (1 + stopPct / 100);
           if (stopLoss > bar.close) {

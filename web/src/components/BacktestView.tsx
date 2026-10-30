@@ -58,6 +58,7 @@ export function BacktestView({
   const [tpMode, setTpMode] = useState('rMultiple');
   const [timeStop, setTimeStop] = useState('');
   const [side, setSide] = useState('both');
+  const [signalMode, setSignalMode] = useState('loose');
   const [splitRatio, setSplitRatio] = useState('0.6');
 
   const [optMinBody, setOptMinBody] = useState('8,10,12');
@@ -89,6 +90,7 @@ export function BacktestView({
         tpMode,
         timeStop: timeStop ? Number(timeStop) : null,
         side,
+        signalMode,
         limit: 20000,
         splitRatio: splitRatio ? Number(splitRatio) : null,
       })) as unknown as BacktestResult;
@@ -111,7 +113,7 @@ export function BacktestView({
         tpR: optTpR.split(',').map((x) => Number(x.trim())).filter((n) => !isNaN(n)),
       };
       const r = (await api.backtestOptimize({
-        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, tpMode, timeStop: timeStop ? Number(timeStop) : null, side },
+        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, tpMode, timeStop: timeStop ? Number(timeStop) : null, side, signalMode },
         grid,
       })) as unknown as OptResult;
       setOptResult(r);
@@ -157,6 +159,7 @@ export function BacktestView({
         <label>止盈模式<select className="input" value={tpMode} onChange={(e) => setTpMode(e.target.value)}><option value="rMultiple">R倍数</option><option value="none">无</option></select></label>
         <label>时间止损(根)<input className="input" value={timeStop} onChange={(e) => setTimeStop(e.target.value)} placeholder="空=不启用" /></label>
         <label>方向<select className="input" value={side} onChange={(e) => setSide(e.target.value)}><option value="both">双向</option><option value="long">仅多</option><option value="short">仅空</option></select></label>
+        <label>信号模式<select className="input" value={signalMode} onChange={(e) => setSignalMode(e.target.value)}><option value="loose">宽松(EMA+趋势K)</option><option value="strict">严格(趋势+回调+入场)</option></select></label>
         <label>样本外比例<input className="input" value={splitRatio} onChange={(e) => setSplitRatio(e.target.value)} placeholder="0.6=前60%训练" /></label>
       </div>
 
