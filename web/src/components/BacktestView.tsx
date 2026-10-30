@@ -54,6 +54,13 @@ export function BacktestView({
   const [emaSlow, setEmaSlow] = useState(144);
   const [stopMode, setStopMode] = useState('defense');
   const [stopPct, setStopPct] = useState(2);
+  const [atrMult, setAtrMult] = useState(2);
+  const [feeRate, setFeeRate] = useState(0.0004);
+  const [slippageBps, setSlippageBps] = useState(0);
+  const [minStopPct, setMinStopPct] = useState(0.5);
+  const [maxStopPct, setMaxStopPct] = useState(8);
+  const [cooldownBars, setCooldownBars] = useState(3);
+  const [use4hFilter, setUse4hFilter] = useState(true);
   const [tpR, setTpR] = useState(2);
   const [tpMode, setTpMode] = useState('rMultiple');
   const [timeStop, setTimeStop] = useState('');
@@ -86,11 +93,18 @@ export function BacktestView({
         emaSlow,
         stopMode,
         stopPct,
+        atrMult,
         tpR,
         tpMode,
         timeStop: timeStop ? Number(timeStop) : null,
         side,
         signalMode,
+        feeRate,
+        slippageBps,
+        minStopPct,
+        maxStopPct,
+        cooldownBars,
+        use4hFilter,
         limit: 20000,
         splitRatio: splitRatio ? Number(splitRatio) : null,
       })) as unknown as BacktestResult;
@@ -113,7 +127,7 @@ export function BacktestView({
         tpR: optTpR.split(',').map((x) => Number(x.trim())).filter((n) => !isNaN(n)),
       };
       const r = (await api.backtestOptimize({
-        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, tpMode, timeStop: timeStop ? Number(timeStop) : null, side, signalMode },
+        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, atrMult, tpMode, timeStop: timeStop ? Number(timeStop) : null, side, signalMode, feeRate, slippageBps, minStopPct, maxStopPct, cooldownBars, use4hFilter },
         grid,
       })) as unknown as OptResult;
       setOptResult(r);
@@ -153,11 +167,18 @@ export function BacktestView({
         <label>EMA快<input className="input" type="number" value={emaFast} onChange={(e) => setEmaFast(Number(e.target.value))} /></label>
         <label>EMA中<input className="input" type="number" value={emaMid} onChange={(e) => setEmaMid(Number(e.target.value))} /></label>
         <label>EMA慢<input className="input" type="number" value={emaSlow} onChange={(e) => setEmaSlow(Number(e.target.value))} /></label>
-        <label>止损模式<select className="input" value={stopMode} onChange={(e) => setStopMode(e.target.value)}><option value="defense">防守位</option><option value="fixedPct">固定%</option></select></label>
+        <label>止损模式<select className="input" value={stopMode} onChange={(e) => setStopMode(e.target.value)}><option value="defense">防守位</option><option value="atr">ATR</option><option value="fixedPct">固定%</option></select></label>
         <label>止损%<input className="input" type="number" value={stopPct} onChange={(e) => setStopPct(Number(e.target.value))} /></label>
         <label>止盈R<input className="input" type="number" value={tpR} onChange={(e) => setTpR(Number(e.target.value))} /></label>
         <label>止盈模式<select className="input" value={tpMode} onChange={(e) => setTpMode(e.target.value)}><option value="rMultiple">R倍数</option><option value="none">无</option></select></label>
         <label>时间止损(根)<input className="input" value={timeStop} onChange={(e) => setTimeStop(e.target.value)} placeholder="空=不启用" /></label>
+        <label>ATR倍数<input className="input" type="number" value={atrMult} onChange={(e) => setAtrMult(Number(e.target.value))} /></label>
+        <label>手续费率<input className="input" type="number" step="0.0001" value={feeRate} onChange={(e) => setFeeRate(Number(e.target.value))} /></label>
+        <label>滑点bp<input className="input" type="number" value={slippageBps} onChange={(e) => setSlippageBps(Number(e.target.value))} /></label>
+        <label>最小止损%<input className="input" type="number" step="0.1" value={minStopPct} onChange={(e) => setMinStopPct(Number(e.target.value))} /></label>
+        <label>最大止损%<input className="input" type="number" value={maxStopPct} onChange={(e) => setMaxStopPct(Number(e.target.value))} /></label>
+        <label>冷却(根)<input className="input" type="number" value={cooldownBars} onChange={(e) => setCooldownBars(Number(e.target.value))} /></label>
+        <label>4h过滤<input type="checkbox" checked={use4hFilter} onChange={(e) => setUse4hFilter(e.target.checked)} /></label>
         <label>方向<select className="input" value={side} onChange={(e) => setSide(e.target.value)}><option value="both">双向</option><option value="long">仅多</option><option value="short">仅空</option></select></label>
         <label>信号模式<select className="input" value={signalMode} onChange={(e) => setSignalMode(e.target.value)}><option value="loose">宽松(EMA+趋势K)</option><option value="strict">严格(趋势+回调+入场)</option></select></label>
         <label>样本外比例<input className="input" value={splitRatio} onChange={(e) => setSplitRatio(e.target.value)} placeholder="0.6=前60%训练" /></label>
