@@ -1,24 +1,6 @@
 import { queryRows } from '../db.js';
 import { PRAC } from '../config.js';
 
-/**
- * 回测引擎（服务端）。
- *
- * 输入：params
- *   symbol, market, startIdx? (默认全部)
- *   minBody, maxShadow (趋势K严格度)
- *   minConsec (连续趋势K根数)
- *   emaFast, emaMid, emaSlow
- *   stopMode: 'defense' | 'fixedPct'
- *   stopPct: 固定止损百分比（stopMode=fixedPct 时）
- *   tpMode: 'rMultiple' | 'none' | 'time'
- *   tpR: 止盈 R 倍数
- *   timeStop: 时间止损根数（null 不启用）
- *   side: 'both' | 'long' | 'short'
- *
- * 输出：{ trades: [...], equity: [...], stats: {...} }
- */
-
 function emaSeries(closes, period) {
   const out = new Array(closes.length).fill(null);
   let sum = 0;
@@ -41,7 +23,6 @@ function isTrendK(bar, minBody, maxShadow) {
   return { bull, bear };
 }
 
-// 中期高低点：当前 high > 前两根 high
 function midPoints(bars) {
   const highs = new Array(bars.length).fill(null);
   const lows = new Array(bars.length).fill(null);
@@ -99,9 +80,8 @@ export async function runBacktest(params) {
   const trendFlags = bars.map((b) => isTrendK(b, minBody, maxShadow));
   const mp = midPoints(bars);
 
-  // 防守位：最后一个中期高/低点（滚动）
-  const defenseHigh = new Array(bars.length).fill(null); // 空头防守位 = 最后一个中期高点
-  const defenseLow = new Array(bars.length).fill(null);  // 多头防守位 = 最后一个中期低点
+  const defenseHigh = new Array(bars.length).fill(null);
+  const defenseLow = new Array(bars.length).fill(null);
   let lastMH = null, lastML = null;
   for (let i = 0; i < bars.length; i++) {
     if (mp.highs[i] != null) lastMH = mp.highs[i];
@@ -122,21 +102,27 @@ export async function runBacktest(params) {
 
   for (let i = 1; i < bars.length; i++) {
     const bar = bars[i];
-    const prev = bars[i - 1];
     const tf = trendFlags[i];
 
-    // 更新连续趋势K计数
     if (tf.bull) consecBull++; else consecBull = 0;
     if (tf.bear) consecBear++; else consecBear = 0;
 
     const emaBull = eFast[i] != null && eMid[i] != null && eSlow[i] != null && eFast[i] > eMid[i] && eMid[i] > eSlow[i];
     const emaBear = eFast[i] != null && eMid[i] != null && eSlow[i] != null && eFast[i] < eMid[i] && eMid[i] < eSlow[i];
 
-    // 趋势激活
     if (consecBull >= minConsec && emaBull) trendActiveLong = true;
-    else if (!tf.bull) trendActiveLong = false;
+    if (trendActiveLong && !tf.bull) {
+      inPullbackLong = true;
+      if (pullbackLowLong == null || bar.low < pullbackLowLong) pullbackLowLong = bar.low;
+    }
+    if (!trendActiveLong && !inPullbackLong && !tf.bull) trendActiveLong = false;
+
     if (consecBear >= minConsec && emaBear) trendActiveShort = true;
-    else if (!tf.bear) trendActiveShort = false;
+    if (trendActiveShort && !tf.bear) {
+      inPullbackShort = true;
+      if (pullbackHighShort == null || bar.high > pullbackHighShort) pullbackHighShort = bar.high;
+    }
+    if (!trendActiveShort && !inPullbackShort && !tf.bear) trendActiveShort = false;
 
     // 持仓管理
     if (openTrade) {
@@ -152,7 +138,6 @@ export async function runBacktest(params) {
         else if (tpMode === 'rMultiple' && bar.low <= t.takeProfit) { exitPrice = t.takeProfit; exitReason = 'target'; }
         else if (timeStop != null && barsHeld >= timeStop) { exitPrice = bar.close; exitReason = 'time'; }
       }
-      // 同根同时触及：保守先止损（上面已优先 stop）
       if (exitPrice != null) {
         const pnl = t.side === 'long' ? (exitPrice - t.entryPrice) : (t.entryPrice - exitPrice);
         const risk = t.side === 'long' ? (t.entryPrice - t.stopLoss) : (t.stopLoss - t.entryPrice);
@@ -175,14 +160,8 @@ export async function runBacktest(params) {
       const wantLong = side === 'both' || side === 'long';
       const wantShort = side === 'both' || side === 'short';
 
-      // 多头：趋势激活后出现回调，再出现趋势K入场
-      if (wantLong && trendActiveLong && emaBull) {
-        // 回调检测：上一根非多头趋势K 或 低点低于前高
-        if (!tf.bull) {
-          inPullbackLong = true;
-          pullbackLowLong = bar.low;
-        } else if (inPullbackLong) {
-          // 回调结束，出现趋势K → 入场
+      if (wantLong && trendActiveLong) {
+        if (inPullbackLong && tf.bull) {
           const stopLoss = stopMode === 'defense' ? (defenseLow[i] ?? bar.low) : bar.close * (1 - stopPct / 100);
           if (stopLoss < bar.close) {
             const risk = bar.close - stopLoss;
@@ -201,23 +180,18 @@ export async function runBacktest(params) {
             trendActiveLong = false;
           }
         }
-        if (inPullbackLong && bar.low < (pullbackLowLong ?? bar.low)) pullbackLowLong = bar.low;
-        // 若回调跌破防守位 → 失败
         if (inPullbackLong && defenseLow[i] != null && pullbackLowLong != null && pullbackLowLong < defenseLow[i]) {
           inPullbackLong = false;
           pullbackLowLong = null;
           trendActiveLong = false;
         }
-      } else {
+      } else if (wantLong) {
         inPullbackLong = false;
         pullbackLowLong = null;
       }
 
-      if (!openTrade && wantShort && trendActiveShort && emaBear) {
-        if (!tf.bear) {
-          inPullbackShort = true;
-          pullbackHighShort = bar.high;
-        } else if (inPullbackShort) {
+      if (!openTrade && wantShort && trendActiveShort) {
+        if (inPullbackShort && tf.bear) {
           const stopLoss = stopMode === 'defense' ? (defenseHigh[i] ?? bar.high) : bar.close * (1 + stopPct / 100);
           if (stopLoss > bar.close) {
             const risk = stopLoss - bar.close;
@@ -236,27 +210,23 @@ export async function runBacktest(params) {
             trendActiveShort = false;
           }
         }
-        if (inPullbackShort && bar.high > (pullbackHighShort ?? bar.high)) pullbackHighShort = bar.high;
         if (inPullbackShort && defenseHigh[i] != null && pullbackHighShort != null && pullbackHighShort > defenseHigh[i]) {
           inPullbackShort = false;
           pullbackHighShort = null;
           trendActiveShort = false;
         }
-      } else if (!openTrade) {
+      } else if (!openTrade && wantShort) {
         inPullbackShort = false;
         pullbackHighShort = null;
       }
     }
   }
 
-  // 未平仓的尾部交易不计（或按最后收盘平）
-  // 统计
   const closed = trades.filter((t) => t.exitPrice != null);
   const wins = closed.filter((t) => t.rMultiple > 0);
   const totalR = closed.reduce((s, t) => s + (t.rMultiple || 0), 0);
   const avgR = closed.length ? totalR / closed.length : 0;
   const winRate = closed.length ? wins.length / closed.length : 0;
-  // max drawdown on equity
   let peak = equity[0]?.equity ?? 10000;
   let maxDD = 0;
   for (const e of equity) {
@@ -264,8 +234,8 @@ export async function runBacktest(params) {
     const dd = (peak - e.equity) / peak;
     if (dd > maxDD) maxDD = dd;
   }
-  const grossWin = closed.filter(t=>t.rMultiple>0).reduce((s,t)=>s+t.rMultiple,0);
-  const grossLoss = Math.abs(closed.filter(t=>t.rMultiple<=0).reduce((s,t)=>s+t.rMultiple,0));
+  const grossWin = closed.filter((t) => t.rMultiple > 0).reduce((s, t) => s + t.rMultiple, 0);
+  const grossLoss = Math.abs(closed.filter((t) => t.rMultiple <= 0).reduce((s, t) => s + t.rMultiple, 0));
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
 
   return {
@@ -298,7 +268,6 @@ export async function runBacktest(params) {
 export async function runOptimization(baseParams, grid) {
   const results = [];
   const keys = Object.keys(grid);
-  // 笛卡尔积
   const combos = [{}];
   for (const k of keys) {
     const next = [];
@@ -309,7 +278,6 @@ export async function runOptimization(baseParams, grid) {
     }
     combos.splice(0, combos.length, ...next);
   }
-  // 限制组合数
   const MAX = 200;
   const runCombos = combos.slice(0, MAX);
   for (const combo of runCombos) {
