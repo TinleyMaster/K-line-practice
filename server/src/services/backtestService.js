@@ -147,9 +147,12 @@ export function runBacktestOnBars(bars, params) {
     let idx4 = 0;
     for (let i = 0; i < bars.length; i++) {
       while (idx4 + 1 < bars4h.length && bars4h[idx4 + 1].time <= bars[i].time) idx4++;
-      if (bars4h[idx4] && e4f[idx4] != null && e4m[idx4] != null && e4s[idx4] != null) {
-        h4Bull[i] = e4f[idx4] > e4m[idx4] && e4m[idx4] > e4s[idx4];
-        h4Bear[i] = e4f[idx4] < e4m[idx4] && e4m[idx4] < e4s[idx4];
+      // 使用已完成的 4h K 线（当前桶未收盘，不能用）
+      const cIdx = idx4 > 0 ? idx4 - 1 : -1;
+      if (cIdx >= 0 && e4m[cIdx] != null) {
+        // 简化 4h 过滤：价格在 4h EMA 中线上方/下方
+        h4Bull[i] = bars4h[cIdx].close > e4m[cIdx];
+        h4Bear[i] = bars4h[cIdx].close < e4m[cIdx];
       }
     }
   } else {
