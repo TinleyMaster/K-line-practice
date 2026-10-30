@@ -23,12 +23,21 @@ function isTrendK(bar, minBody, maxShadow) {
   return { bull, bear };
 }
 
-function midPoints(bars) {
+function midPoints(bars, win = 3) {
   const highs = new Array(bars.length).fill(null);
   const lows = new Array(bars.length).fill(null);
-  for (let i = 2; i < bars.length; i++) {
-    if (bars[i].high > bars[i - 1].high && bars[i].high > bars[i - 2].high) highs[i] = bars[i].high;
-    if (bars[i].low < bars[i - 1].low && bars[i].low < bars[i - 2].low) lows[i] = bars[i].low;
+  // 真正的拐点：bar i 的 high 必须是 [i-win, i+win] 窗口内的最高，low 必须是最低
+  for (let i = 0; i < bars.length; i++) {
+    if (i - win < 0 || i + win >= bars.length) continue;
+    let isH = true;
+    let isL = true;
+    for (let j = i - win; j <= i + win; j++) {
+      if (j === i) continue;
+      if (bars[j].high >= bars[i].high) isH = false;
+      if (bars[j].low <= bars[i].low) isL = false;
+    }
+    if (isH) highs[i] = bars[i].high;
+    if (isL) lows[i] = bars[i].low;
   }
   return { highs, lows };
 }
@@ -138,6 +147,7 @@ export function runBacktestOnBars(bars, params) {
     use4hFilter = true,
     feeEnabled = true,
     riskPct = 1,
+    swingWin = 3,
   } = params || {};
 
   if (bars.length < 100) throw new Error('数据不足');
@@ -147,7 +157,7 @@ export function runBacktestOnBars(bars, params) {
   const eMid = emaSeries(closes, emaMid);
   const eSlow = emaSeries(closes, emaSlow);
   const trendFlags = bars.map((b) => isTrendK(b, minBody, maxShadow));
-  const mp = midPoints(bars);
+  const mp = midPoints(bars, swingWin);
   const atr = atrSeries(bars, atrPeriod);
 
   const defenseHigh = new Array(bars.length).fill(null);
@@ -362,7 +372,7 @@ export function runBacktestOnBars(bars, params) {
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
 
   return {
-    params: { minBody, maxShadow, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter, riskPct },
+    params: { minBody, maxShadow, swingWin, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter, riskPct },
     bars: bars.length,
     trades: closed.map((t) => ({
       side: t.side,

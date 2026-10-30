@@ -3,7 +3,7 @@
  *
  * 复现 MT5 指标 "Trend.mq5" 的核心逻辑：
  *   - 趋势 K 线识别（实体大、影线小）
- *   - 中期高低点标记（当前高/低高于/低于前两根）
+ *   - 中期高低点标记（左右各 swingWin 根内的最高/最低，才是真正的拐点）
  *   - 防守位计算（下跌趋势 = 最后一个中期高点；上涨趋势 = 最后一个中期低点）
  *   - EMA 共振验证（21 / 55 / 144）
  *
@@ -16,7 +16,7 @@ registerIndicator({
   name: 'TRENDSTRUCT',
   shortName: 'TrendStruct',
   series: 'price',
-  calcParams: [30, 20, 20, 21, 55, 144],
+  calcParams: [30, 20, 3, 21, 55, 144],
   precision: 2,
   shouldOhlc: true,
   figures: [
@@ -33,9 +33,26 @@ registerIndicator({
     const params = indicator.calcParams as number[];
     const minBody = Number(params?.[0] ?? 10);
     const maxShadow = Number(params?.[1] ?? 30);
+    const swingWin = Math.max(1, Number(params?.[2] ?? 3)); // 左右各 swingWin 根才确认拐点
     const fastP = Math.max(1, Number(params?.[3] ?? 21));
     const midP = Math.max(1, Number(params?.[4] ?? 55));
     const slowP = Math.max(1, Number(params?.[5] ?? 144));
+
+    // 先在整个数据上计算 swing high / low（必须左右两边都更低/更高才算拐点）
+    const swingHigh: boolean[] = new Array(dataList.length).fill(false);
+    const swingLow: boolean[] = new Array(dataList.length).fill(false);
+    for (let i = 0; i < dataList.length; i++) {
+      if (i - swingWin < 0 || i + swingWin >= dataList.length) continue;
+      let isH = true;
+      let isL = true;
+      for (let j = i - swingWin; j <= i + swingWin; j++) {
+        if (j === i) continue;
+        if (dataList[j].high >= dataList[i].high) isH = false;
+        if (dataList[j].low <= dataList[i].low) isL = false;
+      }
+      if (isH) swingHigh[i] = true;
+      if (isL) swingLow[i] = true;
+    }
 
     let emaFastVal: number | undefined;
     let emaMidVal: number | undefined;
@@ -62,15 +79,8 @@ registerIndicator({
         trendBear = k.close;
       }
 
-      let midHigh: number | undefined;
-      let midLow: number | undefined;
-      // 中期高低点：要求比前 4 根都高/低（swing point），避免每根 K 线都标记
-      if (i >= 4) {
-        const prevH = [dataList[i-1].high, dataList[i-2].high, dataList[i-3].high, dataList[i-4].high];
-        const prevL = [dataList[i-1].low, dataList[i-2].low, dataList[i-3].low, dataList[i-4].low];
-        if (k.high > Math.max(...prevH)) midHigh = k.high;
-        if (k.low < Math.min(...prevL)) midLow = k.low;
-      }
+      const midHigh = swingHigh[i] ? k.high : undefined;
+      const midLow = swingLow[i] ? k.low : undefined;
       if (midHigh !== undefined) lastMidHigh = midHigh;
       if (midLow !== undefined) lastMidLow = midLow;
 
