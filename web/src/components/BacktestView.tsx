@@ -19,6 +19,8 @@ interface BacktestResult {
   bars: number;
   trades: Trade[];
   equity: { time: number; equity: number }[];
+  trainStats?: BacktestResult['stats'];
+  testStats?: BacktestResult['stats'];
   stats: {
     trades: number;
     wins: number;
@@ -56,6 +58,7 @@ export function BacktestView({
   const [tpMode, setTpMode] = useState('rMultiple');
   const [timeStop, setTimeStop] = useState('');
   const [side, setSide] = useState('both');
+  const [splitRatio, setSplitRatio] = useState('0.6');
 
   const [optMinBody, setOptMinBody] = useState('8,10,12');
   const [optMaxShadow, setOptMaxShadow] = useState('25,30,35');
@@ -87,6 +90,7 @@ export function BacktestView({
         timeStop: timeStop ? Number(timeStop) : null,
         side,
         limit: 20000,
+        splitRatio: splitRatio ? Number(splitRatio) : null,
       })) as unknown as BacktestResult;
       setResult(r);
     } catch (e) {
@@ -153,6 +157,7 @@ export function BacktestView({
         <label>止盈模式<select className="input" value={tpMode} onChange={(e) => setTpMode(e.target.value)}><option value="rMultiple">R倍数</option><option value="none">无</option></select></label>
         <label>时间止损(根)<input className="input" value={timeStop} onChange={(e) => setTimeStop(e.target.value)} placeholder="空=不启用" /></label>
         <label>方向<select className="input" value={side} onChange={(e) => setSide(e.target.value)}><option value="both">双向</option><option value="long">仅多</option><option value="short">仅空</option></select></label>
+        <label>样本外比例<input className="input" value={splitRatio} onChange={(e) => setSplitRatio(e.target.value)} placeholder="0.6=前60%训练" /></label>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -171,6 +176,11 @@ export function BacktestView({
             <div className="stat-card"><span>最大回撤</span><strong>{fmtPct(result.stats.maxDrawdown)}</strong></div>
             <div className="stat-card"><span>盈亏比</span><strong>{result.stats.profitFactor == null ? '—' : result.stats.profitFactor.toFixed(2)}</strong></div>
           </div>
+          {result.trainStats && result.testStats && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              样本外验证：训练集 {result.trainStats.trades}笔 / 胜率 {fmtPct(result.trainStats.winRate)} / 总R {result.trainStats.totalR.toFixed(2)} ｜ 测试集 {result.testStats.trades}笔 / 胜率 {fmtPct(result.testStats.winRate)} / 总R {result.testStats.totalR.toFixed(2)}
+            </div>
+          )}
 
           <h4 style={{ marginTop: 12 }}>交易明细（前 50 笔）</h4>
           <div className="table-scroll">

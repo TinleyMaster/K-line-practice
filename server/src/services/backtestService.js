@@ -33,10 +33,26 @@ function midPoints(bars) {
   return { highs, lows };
 }
 
-export async function runBacktest(params) {
+export async function loadBars(symbol, market, limit, offset) {
+  const rows = await queryRows(
+    `SELECT open_time, open_px, high_px, low_px, close_px
+       FROM ${PRAC.schema}.klines
+      WHERE market = $1 AND symbol = $2 AND interval = '1h'
+      ORDER BY open_time ASC
+      LIMIT $3 OFFSET $4`,
+    [market, String(symbol).toUpperCase(), limit, offset || 0],
+  );
+  return rows.map((r) => ({
+    time: new Date(r.open_time).getTime(),
+    open: Number(r.open_px),
+    high: Number(r.high_px),
+    low: Number(r.low_px),
+    close: Number(r.close_px),
+  }));
+}
+
+export function runBacktestOnBars(bars, params) {
   const {
-    symbol,
-    market = 'perp',
     minBody = 10,
     maxShadow = 30,
     minConsec = 2,
@@ -49,27 +65,7 @@ export async function runBacktest(params) {
     tpMode = 'rMultiple',
     timeStop = null,
     side = 'both',
-    limit = 20000,
   } = params || {};
-
-  if (!symbol) throw new Error('缺少 symbol');
-
-  const rows = await queryRows(
-    `SELECT open_time, open_px, high_px, low_px, close_px
-       FROM ${PRAC.schema}.klines
-      WHERE market = $1 AND symbol = $2 AND interval = '1h'
-      ORDER BY open_time ASC
-      LIMIT $3`,
-    [market, String(symbol).toUpperCase(), limit],
-  );
-
-  const bars = rows.map((r) => ({
-    time: new Date(r.open_time).getTime(),
-    open: Number(r.open_px),
-    high: Number(r.high_px),
-    low: Number(r.low_px),
-    close: Number(r.close_px),
-  }));
 
   if (bars.length < 100) throw new Error('数据不足');
 
@@ -124,7 +120,6 @@ export async function runBacktest(params) {
     }
     if (!trendActiveShort && !inPullbackShort && !tf.bear) trendActiveShort = false;
 
-    // 持仓管理
     if (openTrade) {
       const t = openTrade;
       const barsHeld = i - t.entryIdx;
@@ -155,7 +150,6 @@ export async function runBacktest(params) {
       }
     }
 
-    // 无持仓时检测入场
     if (!openTrade) {
       const wantLong = side === 'both' || side === 'long';
       const wantShort = side === 'both' || side === 'short';
@@ -239,7 +233,7 @@ export async function runBacktest(params) {
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
 
   return {
-    params: { minBody, maxShadow, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side },
+    params,
     bars: bars.length,
     trades: closed.map((t) => ({
       side: t.side,
@@ -265,29 +259,56 @@ export async function runBacktest(params) {
   };
 }
 
+export async function runBacktest(params) {
+  const { symbol, market = 'perp', limit = 20000, offset = 0, splitRatio = null, ...rest } = params || {};
+  const bars = await loadBars(symbol, market, limit, offset);
+  if (splitRatio && splitRatio > 0 && splitRatio < 1) {
+    const splitIdx = Math.floor(bars.length * splitRatio);
+    const trainBars = bars.slice(0, splitIdx);
+    const testBars = bars.slice(splitIdx);
+    const train = runBacktestOnBars(trainBars, rest);
+    const test = runBacktestOnBars(testBars, rest);
+    return { ...train, stats: test.stats, trainStats: train.stats, testStats: test.stats, testTrades: test.trades, testEquity: test.equity, splitIdx, bars: bars.length };
+  }
+  return runBacktestOnBars(bars, rest);
+}
+
 export async function runOptimization(baseParams, grid) {
-  const results = [];
+  const { symbol, market = 'perp', limit = 20000, splitRatio = null } = baseParams || {};
+  const bars = await loadBars(symbol, market, limit, 0);
+  const trainBars = splitRatio ? bars.slice(0, Math.floor(bars.length * splitRatio)) : bars;
+  const testBars = splitRatio ? bars.slice(Math.floor(bars.length * splitRatio)) : null;
+
   const keys = Object.keys(grid);
   const combos = [{}];
   for (const k of keys) {
     const next = [];
     for (const c of combos) {
-      for (const v of grid[k]) {
-        next.push({ ...c, [k]: v });
-      }
+      for (const v of grid[k]) next.push({ ...c, [k]: v });
     }
     combos.splice(0, combos.length, ...next);
   }
   const MAX = 200;
   const runCombos = combos.slice(0, MAX);
+  const results = [];
   for (const combo of runCombos) {
     try {
-      const r = await runBacktest({ ...baseParams, ...combo });
-      results.push({ params: combo, stats: r.stats });
+      const train = runBacktestOnBars(trainBars, { ...baseParams, ...combo });
+      let testStats = null;
+      if (testBars) {
+        const test = runBacktestOnBars(testBars, { ...baseParams, ...combo });
+        testStats = test.stats;
+      }
+      results.push({ params: combo, trainStats: train.stats, testStats, stats: testStats || train.stats });
     } catch (e) {
       // skip
     }
   }
-  results.sort((a, b) => (b.stats.totalR - a.stats.totalR) || (b.stats.winRate - a.stats.winRate));
-  return { totalCombos: combos.length, runCombos: runCombos.length, results: results.slice(0, 50) };
+  // rank by test totalR if available, else train totalR
+  results.sort((a, b) => {
+    const aR = (a.testStats?.totalR ?? a.trainStats.totalR);
+    const bR = (b.testStats?.totalR ?? b.trainStats.totalR);
+    return bR - aR || (b.testStats?.winRate ?? b.trainStats.winRate) - (a.testStats?.winRate ?? a.trainStats.winRate);
+  });
+  return { totalCombos: combos.length, runCombos: runCombos.length, results: results.slice(0, 50), splitRatio };
 }
