@@ -27,7 +27,7 @@
   /* 练习台侧栏宽度：回放条吸底时要用它算出 right 偏移，避免遮挡右侧交易面板 */
   --side-col: 340px;
   /* 单图模式下一个图表要占满高度 */
-  --chart-height: 560px;
+  --chart-height: 640px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
@@ -484,8 +484,7 @@ body {
 .chart-canvas {
   flex: 1 1 auto;
   width: 100%;
-  min-height: 0;
-  height: var(--chart-height, 430px);
+  min-height: var(--chart-height, 430px);
   /* 图表需要处理自己的拖拽/缩放手势，禁止浏览器接管 */
   touch-action: none;
 }
@@ -1543,7 +1542,7 @@ textarea {
 /* ---- 3. iPad 竖屏及以下（≤1024px）：单列 + 侧栏双列 ---- */
 @media (max-width: 1024px) {
   :root {
-    --chart-height: 460px;
+    --chart-height: 560px;
   }
 
   .practice-layout {
@@ -1619,7 +1618,7 @@ textarea {
   }
 
   :root {
-    --chart-height: clamp(280px, 48dvh, 470px);
+    --chart-height: clamp(360px, 62dvh, 640px);
     --side-col: 320px;
   }
 }
@@ -1627,7 +1626,7 @@ textarea {
 /* ---- 5. 手机（≤767px）：紧凑布局 ---- */
 @media (max-width: 767px) {
   :root {
-    --chart-height: clamp(280px, 48dvh, 470px);
+    --chart-height: clamp(360px, 62dvh, 600px);
   }
 
   /* 回放条：5 个按钮压成一行（窄屏只显示图标，触控高度不变） */
@@ -1901,7 +1900,7 @@ textarea {
    保证蜡烛主图不被吸底条盖住。 */
 @media (max-height: 520px) and (orientation: landscape) {
   :root {
-    --chart-height: clamp(180px, calc(100dvh - 190px), 240px);
+    --chart-height: clamp(240px, calc(100dvh - 150px), 360px);
   }
 
   .topbar {

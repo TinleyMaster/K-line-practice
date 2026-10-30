@@ -46,7 +46,7 @@ const OVERLAY: IndicatorSpec[] = [
   { name: 'SAR', label: 'SAR 抛物线', group: 'overlay', calcParams: [], defaultOn: false },
   { name: 'TRIX', label: 'TRIX 三重指数', group: 'overlay', calcParams: [12], defaultOn: false },
   { name: 'BIAS', label: 'BIAS 乖离率', group: 'overlay', calcParams: [6, 12, 24], defaultOn: false },
-  { name: 'TRENDSTRUCT', label: '趋势结构 (TrendK+EMA+防守位)', group: 'overlay', calcParams: [40, 15, 6, 21, 55, 144], defaultOn: false },
+  { name: 'TRENDSTRUCT', label: '趋势结构 (TrendK+EMA+防守位)', group: 'overlay', calcParams: [40, 15, 6, 21, 55, 144, 6, 0.1], defaultOn: false },
 ];
 
 /**

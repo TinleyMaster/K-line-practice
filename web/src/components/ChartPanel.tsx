@@ -488,20 +488,20 @@ function toKLineData(bar: Bar): KLineData {
  * 4 个就是 192~400px，而容器才 430px ⇒ 主图只剩几十像素）。
  *
  * 现在的规则：
- *   - 副图**总高** ≤ 容器的 45%（主图至少留一半以上，蜡烛是主角）
- *   - 单个副图 ≤ 90px（再高就没必要，指标图不需要那么大）
- *   - 单个副图 ≥ 44px（低于这个高度 Y 轴刻度会挤成一团）
+ *   - 副图**总高** ≤ 容器的 32%（主图占绝大多数，蜡烛是主角）
+ *   - 单个副图 ≤ 72px（再高就没必要，指标图不需要那么大）
+ *   - 单个副图 ≥ 40px（低于这个高度 Y 轴刻度会挤成一团）
  */
 function applyPaneHeights(chart: Chart, container: HTMLElement, paneIds: string[], weights: number[]) {
   const h = container.clientHeight;
   if (!h || !paneIds.length) return;
 
-  const totalCap = Math.min(h * 0.45, paneIds.length * 90);
+  const totalCap = Math.min(h * 0.32, paneIds.length * 72);
   const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
 
   paneIds.forEach((paneId, i) => {
     const share = (totalCap * (weights[i] ?? 0.28)) / totalWeight;
-    const paneH = Math.round(Math.min(90, Math.max(44, share)));
+    const paneH = Math.round(Math.min(72, Math.max(40, share)));
     chart.setPaneOptions({ id: paneId, height: paneH, minHeight: 40 });
   });
 }
@@ -581,16 +581,55 @@ function updateOhlcHeader(chart: Chart | null, el: HTMLElement | null, indexRef:
 
   try {
     const inds = chart.getIndicators({ name: 'TRENDSTRUCT' });
-    const t = inds && inds[0] && inds[0].result ? (inds[0].result as Array<Record<string, number | null | undefined>>)[idx] : null;
-    if (t) {
+    const result = inds && inds[0] && inds[0].result
+      ? (inds[0].result as Array<Record<string, number | null | undefined>>)
+      : null;
+    if (result) {
+      const t = result[idx];
+      if (t) {
+      // —— 趋势状态自动判定（上升 / 下降 / 震荡 / 分歧）——
+      // EMA21/55/144 排列：bull（多头排列）/ bear（空头排列）/ neutral（缠绕）
+      const ef = t.emaFast, em = t.emaMid, es = t.emaSlow;
+      let emaAl: 'bull' | 'bear' | 'neutral' = 'neutral';
+      if (ef != null && em != null && es != null) {
+        if (ef > em && em > es) emaAl = 'bull';
+        else if (ef < em && em < es) emaAl = 'bear';
+      }
+      // 摆动结构：扫描最近若干根里的真实摆动高/低（midHigh/midLow 仅拐点处非空）
+      const highs: number[] = [];
+      const lows: number[] = [];
+      const from = Math.max(0, idx - 400);
+      for (let k = from; k <= idx; k++) {
+        const r = result[k];
+        if (!r) continue;
+        if (r.midHigh != null) highs.push(r.midHigh as number);
+        if (r.midLow != null) lows.push(r.midLow as number);
+      }
+      const h3 = highs.slice(-3);
+      const l3 = lows.slice(-3);
+      const hRising = h3.length >= 2 && h3[h3.length - 1] > h3[h3.length - 2];
+      const lRising = l3.length >= 2 && l3[l3.length - 1] > l3[l3.length - 2];
+      const structure: 'up' | 'down' | 'diverge' = hRising && lRising
+        ? 'up'
+        : !hRising && !lRising
+          ? 'down'
+          : 'diverge';
+      let regime: string, rcol: string;
+      if (structure === 'up' && emaAl === 'bull') { regime = '上升'; rcol = '#0ECB81'; }
+      else if (structure === 'down' && emaAl === 'bear') { regime = '下降'; rcol = '#F6465D'; }
+      else if (structure === 'diverge') { regime = '震荡'; rcol = '#FCD535'; }
+      else { regime = '分歧'; rcol = '#FFA726'; }
+
       const trend = t.trendBull != null ? '多' : t.trendBear != null ? '空' : '—';
       const tcol = t.trendBull != null ? '#0ECB81' : t.trendBear != null ? '#F6465D' : '#848E9C';
       html +=
         `<span class="oh-sep"></span>` +
+        `<span class="oh-h">趋势 <b style="color:${rcol}">${regime}</b></span>` +
         `<span class="oh-h">防守 <b>${t.defense != null ? fmt(t.defense) : '—'}</b></span>` +
         `<span class="oh-h">趋势K <b style="color:${tcol}">${trend}</b></span>` +
-        `<span class="oh-h">近高 <b>${t.lastMidHigh != null ? fmt(t.lastMidHigh) : '—'}</b></span>` +
-        `<span class="oh-h">近低 <b>${t.lastMidLow != null ? fmt(t.lastMidLow) : '—'}</b></span>`;
+        `<span class="oh-h">摆动高 <b>${t.lastMidHigh != null ? fmt(t.lastMidHigh) : '—'}</b></span>` +
+        `<span class="oh-h">摆动低 <b>${t.lastMidLow != null ? fmt(t.lastMidLow) : '—'}</b></span>`;
+      }
     }
   } catch {
     /* 指标未装载时忽略 */
@@ -1204,6 +1243,59 @@ export function ChartPanel({
     appliedSigRef.current = sig;
     applyPaneHeights(chart, containerRef.current!, r.paneIds, r.weights);
   }, [indicators4h, indicators1h, period]);
+
+  // ---------- 多周期共振（MTF confluence）标记 ----------
+  // 仅 1h / 15m 启用：这两个周期都是独立存储的真实数据（4h 由 1h 派生，属于"假共振"故跳过）。
+  // base = 当前周期，ref = 另一个独立周期（1h↔15m），两者摆动高低点价格重合 ≤1% 处画空心环。
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.removeOverlay({ groupId: 'confluence' });
+
+    const names = period === '4h' ? indicators4h : indicators1h;
+    if (!names.includes('TRENDSTRUCT')) return;
+    if (period === '4h') return; // 4h 派生，共振无意义
+
+    const base: '1h' | '15m' = period === '15m' ? '15m' : '1h';
+    const ref: '1h' | '15m' = period === '15m' ? '1h' : '15m';
+
+    let cancelled = false;
+    api
+      .klinesConfluence(symbol, market, base, ref, 0.01)
+      .then((r) => {
+        if (cancelled || !chartRef.current) return;
+        const overlays: Array<Record<string, unknown>> = [];
+        // 1h↔15m 同源，共振位偏多（属"确认"而非稀有强信号），只画靠近现价、且数量受限的，避免图上泛滥。
+        const CAP = 24;
+        const highs = r.confluentHighs.slice(-CAP);
+        const lows = r.confluentLows.slice(-CAP);
+        for (const h of highs)
+          overlays.push({
+            name: 'confluenceMarker',
+            groupId: 'confluence',
+            lock: true,
+            zLevel: 50,
+            points: [{ timestamp: h.time, value: h.price }],
+            extendData: { kind: 'high' },
+          });
+        for (const l of lows)
+          overlays.push({
+            name: 'confluenceMarker',
+            groupId: 'confluence',
+            lock: true,
+            zLevel: 50,
+            points: [{ timestamp: l.time, value: l.price }],
+            extendData: { kind: 'low' },
+          });
+        if (overlays.length) chart.createOverlay(overlays as never);
+      })
+      .catch(() => {
+        /* 共振接口暂不可用（如无 15m 数据的标的）时静默忽略 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, market, period, indicators1h, indicators4h]);
 
   // ---------- 换标的 / 换周期 / 换起点 / 换市场 / cursor 首次就绪：重建 feed 并 init ----------
   useEffect(() => {

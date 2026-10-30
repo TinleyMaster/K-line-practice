@@ -38,10 +38,14 @@ registerIndicator({
     const fastP = Math.max(1, Number(params?.[3] ?? 21));
     const midP = Math.max(1, Number(params?.[4] ?? 55));
     const slowP = Math.max(1, Number(params?.[5] ?? 144));
+    // 确认窗口：候选拐点需在未来 confBars 根内不被"更高高 / 更低的低"击穿，才算真拐点。
+    // 用来过滤"实体节节攀升、中途被继续突破"的半山腰假摆动（拉回中的小高点不算顶）。
+    const confBars = Math.max(1, Math.min(20, Number(params?.[6] ?? 6)));
+    const revTol = Math.max(0, Number(params?.[7] ?? 0.1)) / 100; // 百分比 → 小数（0.1% 容差忽略毛刺）
 
-    // 先在整个数据上计算 swing high / low：左侧 swingWin 根 + 右侧 rightWin 根都更低/更高
-    const swingHigh: boolean[] = new Array(dataList.length).fill(false);
-    const swingLow: boolean[] = new Array(dataList.length).fill(false);
+    // 先在整个数据上计算候选 swing high / low：左侧 swingWin 根 + 右侧 rightWin 根都更低/更高
+    const candHigh: boolean[] = new Array(dataList.length).fill(false);
+    const candLow: boolean[] = new Array(dataList.length).fill(false);
     for (let i = 0; i < dataList.length; i++) {
       if (i - swingWin < 0 || i + rightWin >= dataList.length) continue;
       let isH = true;
@@ -51,8 +55,29 @@ registerIndicator({
         if (dataList[j].high >= dataList[i].high) isH = false;
         if (dataList[j].low <= dataList[i].low) isL = false;
       }
-      if (isH) swingHigh[i] = true;
-      if (isL) swingLow[i] = true;
+      if (isH) candHigh[i] = true;
+      if (isL) candLow[i] = true;
+    }
+
+    // 确认：候选高点若在之后 confBars 根内被更高的高点击穿 → 只是上升途中的回拉，丢弃。
+    // 真正的顶/底之后价格会反向，不会被击穿，从而保留。末 confBars 根无法确认 → 暂保留（实时最后一根）。
+    const swingHigh: boolean[] = new Array(dataList.length).fill(false);
+    const swingLow: boolean[] = new Array(dataList.length).fill(false);
+    for (let i = 0; i < dataList.length; i++) {
+      if (candHigh[i]) {
+        let broken = false;
+        for (let j = i + 1; j <= i + confBars && j < dataList.length; j++) {
+          if (dataList[j].high > dataList[i].high * (1 + revTol)) { broken = true; break; }
+        }
+        if (!broken) swingHigh[i] = true;
+      }
+      if (candLow[i]) {
+        let broken = false;
+        for (let j = i + 1; j <= i + confBars && j < dataList.length; j++) {
+          if (dataList[j].low < dataList[i].low * (1 - revTol)) { broken = true; break; }
+        }
+        if (!broken) swingLow[i] = true;
+      }
     }
 
     let emaFastVal: number | undefined;
@@ -198,6 +223,26 @@ registerOverlay({
     return [
       { type: 'circle', attrs: { x: c.x, y: c.y, r: 4 }, styles: { style: 'fill', color, borderColor: color, borderSize: 1 } },
       { type: 'text', attrs: { x: c.x, y: c.y + 14, text: label, align: 'center', baseline: 'middle' }, styles: { color, size: 9 } },
+    ];
+  },
+});
+
+// 多周期共振标记：1h 与 15m（独立周期）摆动高低点价格重合处画空心环，提示强 S/R。
+// 只用空心环（不用文字标签），避免标签压在 K 线上；含义由颜色区分（橙红=阻力 / 青=支撑）。
+registerOverlay({
+  name: 'confluenceMarker',
+  totalStep: 1,
+  createPointFigures: ({ coordinates, overlay }) => {
+    const c = coordinates[0];
+    const ext = (overlay.extendData || {}) as { kind?: 'high' | 'low' };
+    const isHigh = ext.kind === 'high';
+    const ring = isHigh ? '#FF7043' : '#26C6DA'; // 阻力橙红 / 支撑青
+    return [
+      {
+        type: 'circle',
+        attrs: { x: c.x, y: c.y, r: 9 },
+        styles: { style: 'stroke', color: ring, borderColor: ring, borderSize: 2 },
+      },
     ];
   },
 });

@@ -199,6 +199,119 @@ klinesRouter.get('/_cache/stats', (req, res) => {
   res.json(getCacheStats());
 });
 
+/**
+ * 计算摆动高低点（与前端 TRENDSTRUCT 指标同算法：左侧 L 根 + 右侧 R 根都更高/更低）。
+ * 这里用于多周期共振：把 base 周期的摆动点与 ref 周期的摆动点按价格接近度配对。
+ */
+function swingPoints(bars, L, R) {
+  const H = [];
+  const Lw = [];
+  if (!bars || bars.length < L + R + 1) return { H, Lw };
+  for (let i = 0; i < bars.length; i++) {
+    if (i - L < 0 || i + R >= bars.length) continue;
+    let isH = true;
+    let isL = true;
+    for (let j = i - L; j <= i + R; j++) {
+      if (j === i) continue;
+      if (bars[j].high >= bars[i].high) isH = false;
+      if (bars[j].low <= bars[i].low) isL = false;
+    }
+    if (isH) H.push({ time: bars[i].time, price: bars[i].high });
+    if (isL) Lw.push({ time: bars[i].time, price: bars[i].low });
+  }
+  return { H, Lw };
+}
+
+/**
+ * GET /api/klines/confluence?symbol=BTCUSDT&market=perp&tolerance=0.01
+ *
+ * 多周期共振：把 base 周期（默认 1h）的摆动高低点，与 ref 周期（默认 15m，独立存储、
+ * 非 1h 派生）的摆动高低点做价格接近度匹配。
+ * 注意：4h 由 1h 派生，重合是"假共振"，因此 ref 用 15m（真实独立周期），
+ * 这样两个时间尺度都认可同一价位，才是有效的共振强信号。
+ */
+klinesRouter.get('/confluence', async (req, res) => {
+  try {
+    const symbol = String(req.query.symbol || '').trim();
+    const market = parseMarket(req.query.market);
+    const tol = Math.min(Math.max(Number(req.query.tolerance) || 0.01, 0.002), 0.05);
+    const baseInt = String(req.query.base || '1h').toLowerCase();
+    const refInt = String(req.query.ref || '15m').toLowerCase();
+    // 时间容差（小时）：要求两个周期的摆动拐点"在同一价位附近、且时间上也靠近"，
+    // 才是真正同一个转折点（强共振），而不是密集数据里随机的价格接近。
+    // 默认 = base 周期的 3 倍（1h→3h，15m→45min），可用 timeTol 覆盖。
+    const baseSec = INTERVAL_SECONDS[baseInt] ?? 3600;
+    const timeTolH = Math.min(Math.max(Number(req.query.timeTol) || (baseSec * 3) / 3600, 0.25), 24);
+    const timeTolMs = timeTolH * 3600 * 1000;
+    if (!symbol) return res.status(400).json({ error: '缺少 symbol' });
+    if (!market) return res.status(400).json({ error: `market 非法，可选：${Object.keys(MARKETS).join(' / ')}` });
+
+    const baseBars = await getBars(symbol, { limit: 1500, market, interval: baseInt });
+    if (baseBars.length === 0) return res.status(404).json({ error: `无 ${symbol} 的 ${baseInt} 数据` });
+
+    let refBars = [];
+    let note = null;
+    try {
+      refBars = await getBars(symbol, { limit: 6000, market, interval: refInt });
+    } catch (e) {
+      note = `ref 周期 ${refInt} 读取失败：${e.message}`;
+    }
+
+    const base = swingPoints(baseBars, 6, 1);
+    const ref = refBars.length ? swingPoints(refBars, 6, 1) : { H: [], Lw: [] };
+
+    // 价格接近 + 时间也接近（同一转折点）才算共振
+    const match = (pt, pool) => {
+      let best = null;
+      for (const r of pool) {
+        if (Math.abs(r.price - pt.price) / pt.price > tol) continue;
+        if (Math.abs(r.time - pt.time) > timeTolMs) continue;
+        if (!best || Math.abs(r.price - pt.price) < Math.abs(best.price - pt.price)) best = r;
+      }
+      return best;
+    };
+
+    const confluentHighs = base.H
+      .map((h) => ({ ...h, ref: match(h, ref.H) }))
+      .filter((h) => h.ref)
+      .map((h) => ({ time: h.time, price: h.price, refTime: h.ref.time, refPrice: h.ref.price }));
+    const confluentLows = base.Lw
+      .map((l) => ({ ...l, ref: match(l, ref.Lw) }))
+      .filter((l) => l.ref)
+      .map((l) => ({ time: l.time, price: l.price, refTime: l.ref.time, refPrice: l.ref.price }));
+
+    // 仅保留"靠近当前价"的共振位（band，相对最后一根收盘价的百分比，0 = 全部）。
+    // 1h 与 15m 同源（1h 高≈其 4 根 15m 高的最大值），共振天生偏多、属"确认"而非独立强信号，
+    // 因此只展示贴近现价的共振位作为可操作的 S/R，避免历史图上标记泛滥。
+    const lastClose = baseBars.length ? baseBars[baseBars.length - 1].close : null;
+    const band = req.query.band !== undefined
+      ? Math.min(Math.max(Number(req.query.band), 0), 1)
+      : 0.03;
+    const inBand = (p) => band <= 0 || lastClose == null || Math.abs(p - lastClose) / lastClose <= band;
+    const fHighs = confluentHighs.filter((h) => inBand(h.price));
+    const fLows = confluentLows.filter((l) => inBand(l.price));
+
+    res.set('Cache-Control', 'private, max-age=120');
+    res.json({
+      symbol,
+      market,
+      base: baseInt,
+      ref: refInt,
+      tolerance: tol,
+      timeTolHours: timeTolH,
+      band,
+      lastClose,
+      note,
+      countBaseHigh: base.H.length,
+      countBaseLow: base.Lw.length,
+      confluentHighs,
+      confluentLows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** DELETE /api/klines/_cache/:symbol —— 手动清缓存（market 可选，不传则清所有市场） */
 klinesRouter.delete('/_cache/:symbol', (req, res) => {
   clearBarCache(parseMarket(req.query.market), req.params.symbol);

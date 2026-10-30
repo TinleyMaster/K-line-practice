@@ -173,4 +173,30 @@ export const api = {
     request<Record<string, unknown>>('/backtest/optimize', { method: 'POST', body: JSON.stringify(params) }),
   backtestValidate: (params: Record<string, unknown>) =>
     request<Record<string, unknown>>('/backtest/validate', { method: 'POST', body: JSON.stringify(params) }),
+
+  /* ---- 多周期共振（MTF confluence）---- */
+  klinesConfluence: (
+    symbol: string,
+    market: Market = 'perp',
+    base: '1h' | '15m' | '4h' = '1h',
+    ref: '1h' | '15m' | '4h' = '15m',
+    tolerance = 0.01,
+  ) =>
+    request<ConfluenceResponse>(
+      `/klines/confluence?symbol=${encodeURIComponent(symbol)}&market=${market}&base=${base}&ref=${ref}&tolerance=${tolerance}`,
+    ),
 };
+
+/** 多周期共振接口返回（/api/klines/confluence） */
+export interface ConfluenceResponse {
+  symbol: string;
+  market: Market;
+  base: string;
+  ref: string;
+  tolerance: number;
+  note: string | null;
+  countBaseHigh: number;
+  countBaseLow: number;
+  confluentHighs: Array<{ time: number; price: number; refTime: number; refPrice: number }>;
+  confluentLows: Array<{ time: number; price: number; refTime: number; refPrice: number }>;
+}

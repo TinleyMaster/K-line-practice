@@ -23,11 +23,13 @@ function isTrendK(bar, minBody, maxShadow) {
   return { bull, bear };
 }
 
-function midPoints(bars, win = 3) {
+function midPoints(bars, win = 3, confBars = 6, revTol = 0.001) {
   const highs = new Array(bars.length).fill(null);
   const lows = new Array(bars.length).fill(null);
-  // 真正的拐点：左侧 win 根 + 右侧 1 根都更低/更高（右侧只等 1 根，避免滞后）
+  // 候选拐点：左侧 win 根 + 右侧 1 根都更低/更高（右侧只等 1 根，避免滞后）
   const rightWin = 1;
+  const candHigh = new Array(bars.length).fill(false);
+  const candLow = new Array(bars.length).fill(false);
   for (let i = 0; i < bars.length; i++) {
     if (i - win < 0 || i + rightWin >= bars.length) continue;
     let isH = true;
@@ -37,8 +39,26 @@ function midPoints(bars, win = 3) {
       if (bars[j].high >= bars[i].high) isH = false;
       if (bars[j].low <= bars[i].low) isL = false;
     }
-    if (isH) highs[i] = bars[i].high;
-    if (isL) lows[i] = bars[i].low;
+    if (isH) candHigh[i] = true;
+    if (isL) candLow[i] = true;
+  }
+  // 确认：候选高点若在之后 confBars 根内被更高的高点击穿 → 上升途中的回拉，丢弃；
+  // 真正的顶之后价格反向，不会被击穿，保留。末 confBars 根无法确认 → 暂保留。
+  for (let i = 0; i < bars.length; i++) {
+    if (candHigh[i]) {
+      let broken = false;
+      for (let j = i + 1; j <= i + confBars && j < bars.length; j++) {
+        if (bars[j].high > bars[i].high * (1 + revTol)) { broken = true; break; }
+      }
+      if (!broken) highs[i] = bars[i].high;
+    }
+    if (candLow[i]) {
+      let broken = false;
+      for (let j = i + 1; j <= i + confBars && j < bars.length; j++) {
+        if (bars[j].low < bars[i].low * (1 - revTol)) { broken = true; break; }
+      }
+      if (!broken) lows[i] = bars[i].low;
+    }
   }
   return { highs, lows };
 }
@@ -158,7 +178,7 @@ export function runBacktestOnBars(bars, params) {
   const eMid = emaSeries(closes, emaMid);
   const eSlow = emaSeries(closes, emaSlow);
   const trendFlags = bars.map((b) => isTrendK(b, minBody, maxShadow));
-  const mp = midPoints(bars, swingWin);
+  const mp = midPoints(bars, swingWin, 6, 0.001);
   const atr = atrSeries(bars, atrPeriod);
 
   const defenseHigh = new Array(bars.length).fill(null);
