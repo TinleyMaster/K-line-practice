@@ -448,11 +448,43 @@ body {
 
 .chart-canvas-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 顶部 OHLC 独立详情条（币安风格），单独 DOM 行，不压 K 线 */
+.chart-ohlc-header {
+  flex: 0 0 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  font-size: 11px;
+  line-height: 24px;
+  color: var(--text);
+  background: var(--bg-elev, #161A1E);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  overflow: hidden;
+  white-space: nowrap;
+  z-index: 6;
+}
+.chart-ohlc-header .oh-h { color: var(--text-dim, #848E9C); }
+.chart-ohlc-header .oh-h b { color: var(--text); font-weight: 600; }
+.chart-ohlc-header .oh-sep {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  background: var(--border, rgba(255, 255, 255, 0.12));
+  margin: 0 2px;
 }
 
 /* 图表画布高度由 CSS 统一控制（媒体查询可覆盖），不写死在组件里 */
 .chart-canvas {
+  flex: 1 1 auto;
   width: 100%;
+  min-height: 0;
   height: var(--chart-height, 430px);
   /* 图表需要处理自己的拖拽/缩放手势，禁止浏览器接管 */
   touch-action: none;
@@ -461,7 +493,7 @@ body {
 /* 锁定 K 线的竖向标记 */
 .pin-marker {
   position: absolute;
-  top: 0;
+  top: 24px;
   bottom: 0;
   border-left: 1px dashed rgba(252, 213, 53, 0.9);
   pointer-events: none;
@@ -471,7 +503,7 @@ body {
 /* 练习起点标记（预热区与练习区的分界） */
 .start-marker {
   position: absolute;
-  top: 0;
+  top: 24px;
   bottom: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.22);
   pointer-events: none;
@@ -2893,8 +2925,10 @@ body.popup-open .ind-panel {
   position: relative;
 }
 .app-mobile .chart-canvas {
+  flex: 1 1 auto;
   width: 100%;
-  height: 100% !important;
+  height: auto;
+  min-height: 0;
 }
 /* 移动端：坐标轴/价格标记字号缩小，避免遮挡 K 线 */
 .app-mobile .chart-canvas-wrap { font-size: 10px; }

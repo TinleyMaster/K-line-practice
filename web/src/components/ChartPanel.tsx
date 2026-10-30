@@ -203,7 +203,7 @@ const BINANCE_STYLES: DeepPartial<Styles> = {
       },
     },
     tooltip: {
-      showRule: 'follow_cross',
+      showRule: 'none',
       showType: 'standard',
       rect: {
         position: 'fixed',
@@ -550,6 +550,55 @@ function setOffsetRight(chart: Chart, px: number) {
 }
 
 /**
+ * 刷新顶部 OHLC header 条：显示光标所在（或最后一根）K 线的开高低收/涨跌/量，
+ * 以及 TRENDSTRUCT 指标在该根的防守位/趋势K/近期高低点。
+ * 这是一条独立的 DOM 行（不画在画布上），所以完全不遮挡 K 线。
+ */
+function updateOhlcHeader(chart: Chart | null, el: HTMLElement | null, indexRef: React.MutableRefObject<number | null>) {
+  if (!el) return;
+  if (!chart) { el.innerHTML = ''; return; }
+  const data = chart.getDataList();
+  if (!data || data.length === 0) { el.innerHTML = ''; return; }
+  const idx = indexRef.current == null ? data.length - 1 : Math.min(indexRef.current, data.length - 1);
+  const bar = data[idx];
+  if (!bar) { el.innerHTML = ''; return; }
+  const prev = idx > 0 ? data[idx - 1] : null;
+  const chg = prev ? bar.close - prev.close : 0;
+  const chgPct = prev && prev.close ? (chg / prev.close) * 100 : 0;
+  const up = chg >= 0;
+  const col = up ? '#0ECB81' : '#F6465D';
+  const fmt = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  const compact = (v: number) => (Math.abs(v) >= 1000 ? (v / 1000).toFixed(2) + 'K' : v.toFixed(2));
+  const esc = (s: string) => s;
+  let html =
+    `<span class="oh-h">${esc(fmtTime(bar.timestamp))}</span>` +
+    `<span class="oh-h">开 <b>${fmt(bar.open)}</b></span>` +
+    `<span class="oh-h">高 <b>${fmt(bar.high)}</b></span>` +
+    `<span class="oh-h">低 <b>${fmt(bar.low)}</b></span>` +
+    `<span class="oh-h">收 <b style="color:${col}">${fmt(bar.close)}</b></span>` +
+    `<span class="oh-h" style="color:${col}">${up ? '+' : ''}${chg.toFixed(2)} (${chgPct.toFixed(2)}%)</span>` +
+    `<span class="oh-h">量 <b>${compact(bar.volume ?? 0)}</b></span>`;
+
+  try {
+    const inds = chart.getIndicators({ name: 'TRENDSTRUCT' });
+    const t = inds && inds[0] && inds[0].result ? (inds[0].result as Array<Record<string, number | null | undefined>>)[idx] : null;
+    if (t) {
+      const trend = t.trendBull != null ? '多' : t.trendBear != null ? '空' : '—';
+      const tcol = t.trendBull != null ? '#0ECB81' : t.trendBear != null ? '#F6465D' : '#848E9C';
+      html +=
+        `<span class="oh-sep"></span>` +
+        `<span class="oh-h">防守 <b>${t.defense != null ? fmt(t.defense) : '—'}</b></span>` +
+        `<span class="oh-h">趋势K <b style="color:${tcol}">${trend}</b></span>` +
+        `<span class="oh-h">近高 <b>${t.lastMidHigh != null ? fmt(t.lastMidHigh) : '—'}</b></span>` +
+        `<span class="oh-h">近低 <b>${t.lastMidLow != null ? fmt(t.lastMidLow) : '—'}</b></span>`;
+    }
+  } catch {
+    /* 指标未装载时忽略 */
+  }
+  el.innerHTML = html;
+}
+
+/**
  * K 线间距（barSpace）统一为固定像素宽度，让 15m / 1h / 4h 的蜡烛看起来一样大。
  *
  * 旧逻辑（v6.3）：barSpace 按周期成 4:1（4h 的蜡烛是 1h 的 4 倍宽），用于各周期
@@ -787,6 +836,10 @@ export function ChartPanel({
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   // 锁定的镜像（事件回调里要读最新值，不能只依赖 state 闭包）
   const pinnedRef = useRef<number | null>(null);
+  // 顶部 OHLC 独立 header 条（不压 K 线的币安风格详情行）
+  const headerRef = useRef<HTMLDivElement>(null);
+  // 十字光标当前所在下标；null 表示未悬停 → 显示最后一根
+  const headerIndexRef = useRef<number | null>(null);
 
   /** 十字光标所在那根 K 线（跟随） */
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -1038,6 +1091,14 @@ export function ChartPanel({
     el.addEventListener('pointerup', onPointerUp);
     window.addEventListener('keydown', onKey);
 
+    // 十字光标移动 → 刷新顶部 OHLC header（独立 DOM 行，不压 K 线）
+    const onCross = (data?: unknown) => {
+      const di = (data as { dataIndex?: number } | undefined)?.dataIndex;
+      headerIndexRef.current = di == null ? null : di;
+      updateOhlcHeader(chart, headerRef.current, headerIndexRef);
+    };
+    chart.subscribeAction('onCrosshairChange', onCross);
+
     const ro = new ResizeObserver(() => {
       chart.resize();
       applyPaneHeights(chart, containerRef.current!, paneIdsRef.current, weightsRef.current);
@@ -1052,6 +1113,7 @@ export function ChartPanel({
       el.removeEventListener('pointerdown', onPointerDown);
       el.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('keydown', onKey);
+      try { chart.unsubscribeAction('onCrosshairChange', onCross); } catch { /* noop */ }
       dispose(chart);
       chartRef.current = null;
     };
@@ -1197,6 +1259,9 @@ export function ChartPanel({
     setTimeout(() => { suppressForwardRef.current = false; }, 5000);
 
     loadedKeyRef.current = key;
+    // 数据装载后立即刷新顶部 OHLC header（显示最后一根）
+    headerIndexRef.current = null;
+    updateOhlcHeader(chart, headerRef.current, headerIndexRef);
   }, [symbol, market, period, bars1h, bars15m, startCursor, cursor, activeBars]);
 
   // ---------- 游标推进：增量同步 ----------
@@ -1209,6 +1274,7 @@ export function ChartPanel({
     syncFeed(chart, feed, activeBars.map(toKLineData));
     // 回退导致 resetData 时，barSpace 会被重置 —— 补一次
     applyTargetBarSpace(chart, period);
+    updateOhlcHeader(chart, headerRef.current, headerIndexRef);
   }, [activeBars, symbol, market, period]);
 
   // ---------- 持仓：画入场/止损/目标线（1h 与 15m 图上都画） ----------
@@ -1434,6 +1500,7 @@ export function ChartPanel({
       )}
 
       <div className="chart-canvas-wrap">
+        <div ref={headerRef} className="chart-ohlc-header" />
         <div ref={containerRef} className="chart-canvas" />
         {startX !== null && <div className="start-marker" style={{ left: `${startX}px` }} />}
         {locked && pinX !== null && <div className="pin-marker" style={{ left: `${pinX}px` }} />}
