@@ -1,4 +1,4 @@
-import { queryRows } from '../db.js';
+import { queryRows, queryOne } from '../db.js';
 import { PRAC } from '../config.js';
 
 function emaSeries(closes, period) {
@@ -112,6 +112,7 @@ export function runBacktestOnBars(bars, params) {
     cooldownBars = 3,        // 信号冷却根数
     use4hFilter = true,      // 4h 方向过滤
     feeEnabled = true,
+    riskPct = 1,
   } = params || {};
 
   if (bars.length < 100) throw new Error('数据不足');
@@ -217,14 +218,18 @@ export function runBacktestOnBars(bars, params) {
         else if (timeStop != null && barsHeld >= timeStop) { exitPrice = bar.close; exitReason = 'time'; }
       }
       if (exitPrice != null) {
-        let pnl = t.side === 'long' ? (exitPrice - t.entryPrice) : (t.entryPrice - exitPrice);
-        const risk = t.side === 'long' ? (t.entryPrice - t.stopLoss) : (t.stopLoss - t.entryPrice);
-        // 扣除手续费和滑点
-        if (feeEnabled) {
-          const cost = (feeRate * 2 + slip * 2) * t.entryPrice;
+        const riskPerUnit = t.side === 'long' ? (t.entryPrice - t.stopLoss) : (t.stopLoss - t.entryPrice);
+        const pricePnl = t.side === 'long' ? (exitPrice - t.entryPrice) : (t.entryPrice - exitPrice);
+        const equityAtEntry = t.equityAtEntry ?? equityVal;
+        const riskAmount = equityAtEntry * (riskPct / 100);
+        const qty = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
+        let pnl = pricePnl * qty;
+        if (feeEnabled && qty > 0) {
+          const slip = slippageBps / 10000;
+          const cost = (2 * feeRate + 2 * slip) * t.entryPrice * qty;
           pnl -= cost;
         }
-        const rMult = risk > 0 ? pnl / risk : 0;
+        const rMult = riskAmount > 0 ? pnl / riskAmount : 0;
         t.exitTime = bar.time;
         t.exitPrice = exitPrice;
         t.exitReason = exitReason;
@@ -255,7 +260,7 @@ export function runBacktestOnBars(bars, params) {
           const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * tpR : null;
           openTrade = {
             side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-            stopLoss, takeProfit, tpR,
+            stopLoss, takeProfit, tpR, equityAtEntry: equityVal,
           };
           lastEntryIdx = i;
         }
@@ -286,7 +291,7 @@ export function runBacktestOnBars(bars, params) {
             const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * tpR : null;
             openTrade = {
               side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-              stopLoss, takeProfit, tpR,
+              stopLoss, takeProfit, tpR, equityAtEntry: equityVal,
             };
             inPullbackLong = false;
             pullbackLowLong = null;
@@ -350,7 +355,7 @@ export function runBacktestOnBars(bars, params) {
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
 
   return {
-    params: { minBody, maxShadow, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter },
+    params: { minBody, maxShadow, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter, riskPct },
     bars: bars.length,
     trades: closed.map((t) => ({
       side: t.side,
@@ -377,7 +382,7 @@ export function runBacktestOnBars(bars, params) {
 }
 
 export async function runBacktest(params) {
-  const { symbol, market = 'perp', limit = 20000, offset = 0, splitRatio = null, ...rest } = params || {};
+  const { symbol, market = 'perp', limit = 20000, offset, since, until, splitRatio = null, ...rest } = params || {};
   const bars = await loadBars(symbol, market, limit, offset);
   if (splitRatio && splitRatio > 0 && splitRatio < 1) {
     const splitIdx = Math.floor(bars.length * splitRatio);
@@ -433,14 +438,22 @@ export async function runOptimization(baseParams, grid) {
   return { totalCombos: combos.length, runCombos: runCombos.length, results: results.slice(0, 50), splitRatio };
 }
 
-export async function loadBars(symbol, market, limit, offset) {
+export async function loadBars(symbol, market, limit, offset, since, until) {
+  const sym = String(symbol).toUpperCase();
+  const lim = limit || 20000;
+  let where = "market = $1 AND symbol = $2 AND interval = '1h'";
+  const params = [market, sym];
+  if (since) { params.push(new Date(since).toISOString()); where += ' AND open_time >= $' + params.length; }
+  if (until) { params.push(new Date(until).toISOString()); where += ' AND open_time <= $' + params.length; }
+  let off = offset;
+  if (off == null && !since && !until) {
+      const cnt = await queryOne('SELECT count(*)::int AS c FROM ' + PRAC.schema + '.klines WHERE ' + where, params);
+    off = Math.max(0, (cnt?.c ?? 0) - lim);
+  }
+  off = off || 0;
   const rows = await queryRows(
-    `SELECT open_time, open_px, high_px, low_px, close_px
-       FROM ${PRAC.schema}.klines
-      WHERE market = $1 AND symbol = $2 AND interval = '1h'
-      ORDER BY open_time ASC
-      LIMIT $3 OFFSET $4`,
-    [market, String(symbol).toUpperCase(), limit, offset || 0],
+    'SELECT open_time, open_px, high_px, low_px, close_px FROM ' + PRAC.schema + '.klines WHERE ' + where + ' ORDER BY open_time ASC LIMIT ' + lim + ' OFFSET ' + off,
+    params,
   );
   return rows.map((r) => ({
     time: new Date(r.open_time).getTime(),
