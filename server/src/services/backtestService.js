@@ -33,7 +33,6 @@ function midPoints(bars) {
   return { highs, lows };
 }
 
-// ATR (Wilder smoothing)
 function atrSeries(bars, period) {
   const out = new Array(bars.length).fill(null);
   if (bars.length < period + 1) return out;
@@ -50,7 +49,6 @@ function atrSeries(bars, period) {
   return out;
 }
 
-// 4h K 线派生（从 1h 聚合，UTC 4h 桶对齐）
 function derive4h(bars1h) {
   const buckets = new Map();
   for (const b of bars1h) {
@@ -72,9 +70,8 @@ function derive4h(bars1h) {
   return out;
 }
 
-// EMA 斜率：最近 slopeBars 根 EMA 是否单调上升/下降
 function emaSlope(emaArr, i, slopeBars) {
-  if (i < slopeBars) return 0;
+  if (i < slopeBars || slopeBars < 2) return 0;
   let up = true, down = true;
   for (let j = i - slopeBars + 1; j <= i; j++) {
     if (emaArr[j] == null || emaArr[j - 1] == null) { up = false; down = false; break; }
@@ -84,6 +81,35 @@ function emaSlope(emaArr, i, slopeBars) {
   if (up) return 1;
   if (down) return -1;
   return 0;
+}
+
+export async function loadBars(symbol, market, limit, offset, since, until) {
+  const sym = String(symbol).toUpperCase();
+  const lim = Math.max(1, Math.min(Number(limit) || 20000, 100000));
+  const off = Math.max(0, Number(offset) || 0);
+  let where = "market = $1 AND symbol = $2 AND interval = '1h'";
+  const params = [market, sym];
+  if (since) { params.push(new Date(since).toISOString()); where += ' AND open_time >= $' + params.length; }
+  if (until) { params.push(new Date(until).toISOString()); where += ' AND open_time <= $' + params.length; }
+
+  // 默认取最新 N 根
+  let finalOffset = off;
+  if (off === 0 && !since && !until) {
+    const cnt = await queryOne('SELECT count(*)::int AS c FROM ' + PRAC.schema + '.klines WHERE ' + where, params);
+    finalOffset = Math.max(0, (cnt?.c ?? 0) - lim);
+  }
+
+  const rows = await queryRows(
+    'SELECT open_time, open_px, high_px, low_px, close_px FROM ' + PRAC.schema + '.klines WHERE ' + where + ' ORDER BY open_time ASC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2),
+    [...params, lim, finalOffset],
+  );
+  return rows.map((r) => ({
+    time: new Date(r.open_time).getTime(),
+    open: Number(r.open_px),
+    high: Number(r.high_px),
+    low: Number(r.low_px),
+    close: Number(r.close_px),
+  }));
 }
 
 export function runBacktestOnBars(bars, params) {
@@ -101,16 +127,15 @@ export function runBacktestOnBars(bars, params) {
     timeStop = null,
     side = 'both',
     signalMode = 'loose',
-    // 新增参数
-    feeRate = 0.0004,        // 单边费率
-    slippageBps = 0,         // 滑点 bp
+    feeRate = 0.0004,
+    slippageBps = 0,
     atrPeriod = 14,
-    atrMult = 2,             // ATR 止损倍数（stopMode='atr' 时）
-    minStopPct = 0.5,        // 止损距离最小 %
-    maxStopPct = 8,          // 止损距离最大 %
-    emaSlopeBars = 3,        // EMA 斜率确认根数
-    cooldownBars = 3,        // 信号冷却根数
-    use4hFilter = true,      // 4h 方向过滤
+    atrMult = 2,
+    minStopPct = 0.5,
+    maxStopPct = 8,
+    emaSlopeBars = 3,
+    cooldownBars = 3,
+    use4hFilter = true,
     feeEnabled = true,
     riskPct = 1,
   } = params || {};
@@ -135,30 +160,21 @@ export function runBacktestOnBars(bars, params) {
     defenseLow[i] = lastML;
   }
 
-  // 4h 方向
-  let h4Bull = new Array(bars.length).fill(false);
-  let h4Bear = new Array(bars.length).fill(false);
+  let h4Bull = new Array(bars.length).fill(true);
+  let h4Bear = new Array(bars.length).fill(true);
   if (use4hFilter) {
     const bars4h = derive4h(bars);
     const c4 = bars4h.map((b) => b.close);
-    const e4f = emaSeries(c4, emaFast);
     const e4m = emaSeries(c4, emaMid);
-    const e4s = emaSeries(c4, emaSlow);
-    // map 4h EMA to 1h bars
     let idx4 = 0;
     for (let i = 0; i < bars.length; i++) {
       while (idx4 + 1 < bars4h.length && bars4h[idx4 + 1].time <= bars[i].time) idx4++;
-      // 使用已完成的 4h K 线（当前桶未收盘，不能用）
       const cIdx = idx4 > 0 ? idx4 - 1 : -1;
       if (cIdx >= 0 && e4m[cIdx] != null) {
-        // 简化 4h 过滤：价格在 4h EMA 中线上方/下方
         h4Bull[i] = bars4h[cIdx].close > e4m[cIdx];
         h4Bear[i] = bars4h[cIdx].close < e4m[cIdx];
       }
     }
-  } else {
-    h4Bull.fill(true);
-    h4Bear.fill(true);
   }
 
   const trades = [];
@@ -184,10 +200,9 @@ export function runBacktestOnBars(bars, params) {
     const emaBull = eFast[i] != null && eMid[i] != null && eSlow[i] != null && eFast[i] > eMid[i] && eMid[i] > eSlow[i];
     const emaBear = eFast[i] != null && eMid[i] != null && eSlow[i] != null && eFast[i] < eMid[i] && eMid[i] < eSlow[i];
 
-    // EMA 斜率确认
     const slopeFast = emaSlope(eFast, i, emaSlopeBars);
-    const emaBullSlope = emaBull && slopeFast >= 0;
-    const emaBearSlope = emaBear && slopeFast <= 0;
+    const emaBullSlope = emaBull && (emaSlopeBars < 2 || slopeFast >= 0);
+    const emaBearSlope = emaBear && (emaSlopeBars < 2 || slopeFast <= 0);
 
     if (consecBull >= minConsec && emaBullSlope) trendActiveLong = true;
     if (trendActiveLong && !tf.bull) {
@@ -203,7 +218,6 @@ export function runBacktestOnBars(bars, params) {
     }
     if (!trendActiveShort && !inPullbackShort && !tf.bear) trendActiveShort = false;
 
-    // 持仓管理
     if (openTrade) {
       const t = openTrade;
       const barsHeld = i - t.entryIdx;
@@ -220,35 +234,29 @@ export function runBacktestOnBars(bars, params) {
       if (exitPrice != null) {
         const riskPerUnit = t.side === 'long' ? (t.entryPrice - t.stopLoss) : (t.stopLoss - t.entryPrice);
         const pricePnl = t.side === 'long' ? (exitPrice - t.entryPrice) : (t.entryPrice - exitPrice);
+        const costR = (feeEnabled && riskPerUnit > 0) ? ((2 * feeRate + 2 * slip) * t.entryPrice) / riskPerUnit : 0;
+        const rMult = riskPerUnit > 0 ? pricePnl / riskPerUnit - costR : 0;
         const equityAtEntry = t.equityAtEntry ?? equityVal;
         const riskAmount = equityAtEntry * (riskPct / 100);
         const qty = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
-        let pnl = pricePnl * qty;
-        if (feeEnabled && qty > 0) {
-          const slip = slippageBps / 10000;
-          const cost = (2 * feeRate + 2 * slip) * t.entryPrice * qty;
-          pnl -= cost;
-        }
-        const rMult = riskAmount > 0 ? pnl / riskAmount : 0;
+        const pnlDollar = pricePnl * qty - (feeEnabled && qty > 0 ? (2 * feeRate + 2 * slip) * t.entryPrice * qty : 0);
         t.exitTime = bar.time;
         t.exitPrice = exitPrice;
         t.exitReason = exitReason;
         t.rMultiple = rMult;
-        t.pnl = pnl;
+        t.pnl = pnlDollar;
         t.exitIdx = i;
         trades.push({ ...t });
-        equityVal += pnl;
+        equityVal += pnlDollar;
         equity.push({ time: bar.time, equity: equityVal });
         openTrade = null;
       }
     }
 
-    // 无持仓时检测入场
     if (!openTrade && i - lastEntryIdx >= cooldownBars) {
       const wantLong = (side === 'both' || side === 'long') && h4Bull[i];
       const wantShort = (side === 'both' || side === 'short') && h4Bear[i];
 
-      // loose mode：EMA 共振 + 趋势 K 直接入场
       if (signalMode === 'loose' && wantLong && emaBull && tf.bull) {
         let stopLoss;
         if (stopMode === 'defense') stopLoss = defenseLow[i] ?? bar.low;
@@ -275,13 +283,12 @@ export function runBacktestOnBars(bars, params) {
           const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * tpR : null;
           openTrade = {
             side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-            stopLoss, takeProfit, tpR,
+            stopLoss, takeProfit, tpR, equityAtEntry: equityVal,
           };
           lastEntryIdx = i;
         }
       }
 
-      // strict mode：趋势激活 → 回调 → 入场
       if (!openTrade && signalMode === 'strict' && wantLong && trendActiveLong) {
         if (inPullbackLong && tf.bull) {
           const stopLoss = stopMode === 'defense' ? (defenseLow[i] ?? bar.low) : (stopMode === 'atr' ? bar.close - (atr[i] ?? bar.close * 0.02) * atrMult : bar.close * (1 - stopPct / 100));
@@ -318,7 +325,7 @@ export function runBacktestOnBars(bars, params) {
             const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * tpR : null;
             openTrade = {
               side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-              stopLoss, takeProfit, tpR,
+              stopLoss, takeProfit, tpR, equityAtEntry: equityVal,
             };
             inPullbackShort = false;
             pullbackHighShort = null;
@@ -383,7 +390,7 @@ export function runBacktestOnBars(bars, params) {
 
 export async function runBacktest(params) {
   const { symbol, market = 'perp', limit = 20000, offset, since, until, splitRatio = null, ...rest } = params || {};
-  const bars = await loadBars(symbol, market, limit, offset);
+  const bars = await loadBars(symbol, market, limit, offset, since, until);
   if (splitRatio && splitRatio > 0 && splitRatio < 1) {
     const splitIdx = Math.floor(bars.length * splitRatio);
     const trainBars = bars.slice(0, splitIdx);
@@ -391,14 +398,26 @@ export async function runBacktest(params) {
     const train = runBacktestOnBars(trainBars, rest);
     const test = runBacktestOnBars(testBars, rest);
     const useTest = (test.stats.trades ?? 0) > 0;
-    return { ...train, stats: useTest ? test.stats : train.stats, trainStats: train.stats, testStats: test.stats, testTrades: test.trades, testEquity: test.equity, splitIdx, bars: bars.length };
+    const primary = useTest ? test : train;
+    return {
+      ...primary,
+      stats: primary.stats,
+      trainStats: train.stats,
+      testStats: test.stats,
+      trainTrades: train.trades,
+      testTrades: test.trades,
+      trainEquity: train.equity,
+      testEquity: test.equity,
+      splitIdx,
+      bars: bars.length,
+    };
   }
   return runBacktestOnBars(bars, rest);
 }
 
 export async function runOptimization(baseParams, grid) {
-  const { symbol, market = 'perp', limit = 20000, splitRatio = null } = baseParams || {};
-  const bars = await loadBars(symbol, market, limit, 0);
+  const { symbol, market = 'perp', limit = 20000, since, until, splitRatio = null } = baseParams || {};
+  const bars = await loadBars(symbol, market, limit, 0, since, until);
   const trainBars = splitRatio ? bars.slice(0, Math.floor(bars.length * splitRatio)) : bars;
   const testBars = splitRatio ? bars.slice(Math.floor(bars.length * splitRatio)) : null;
 
@@ -436,30 +455,4 @@ export async function runOptimization(baseParams, grid) {
     return bR - aR || (b.testStats?.winRate ?? b.trainStats.winRate) - (a.testStats?.winRate ?? a.trainStats.winRate);
   });
   return { totalCombos: combos.length, runCombos: runCombos.length, results: results.slice(0, 50), splitRatio };
-}
-
-export async function loadBars(symbol, market, limit, offset, since, until) {
-  const sym = String(symbol).toUpperCase();
-  const lim = limit || 20000;
-  let where = "market = $1 AND symbol = $2 AND interval = '1h'";
-  const params = [market, sym];
-  if (since) { params.push(new Date(since).toISOString()); where += ' AND open_time >= $' + params.length; }
-  if (until) { params.push(new Date(until).toISOString()); where += ' AND open_time <= $' + params.length; }
-  let off = offset;
-  if (off == null && !since && !until) {
-      const cnt = await queryOne('SELECT count(*)::int AS c FROM ' + PRAC.schema + '.klines WHERE ' + where, params);
-    off = Math.max(0, (cnt?.c ?? 0) - lim);
-  }
-  off = off || 0;
-  const rows = await queryRows(
-    'SELECT open_time, open_px, high_px, low_px, close_px FROM ' + PRAC.schema + '.klines WHERE ' + where + ' ORDER BY open_time ASC LIMIT ' + lim + ' OFFSET ' + off,
-    params,
-  );
-  return rows.map((r) => ({
-    time: new Date(r.open_time).getTime(),
-    open: Number(r.open_px),
-    high: Number(r.high_px),
-    low: Number(r.low_px),
-    close: Number(r.close_px),
-  }));
 }

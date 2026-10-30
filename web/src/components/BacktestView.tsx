@@ -67,6 +67,8 @@ export function BacktestView({
   const [side, setSide] = useState('both');
   const [signalMode, setSignalMode] = useState('loose');
   const [splitRatio, setSplitRatio] = useState('0.6');
+  const [since, setSince] = useState('');
+  const [until, setUntil] = useState('');
 
   const [optMinBody, setOptMinBody] = useState('8,10,12');
   const [optMaxShadow, setOptMaxShadow] = useState('25,30,35');
@@ -106,6 +108,8 @@ export function BacktestView({
         cooldownBars,
         use4hFilter,
         limit: 20000,
+        since: since || undefined,
+        until: until || undefined,
         splitRatio: splitRatio ? Number(splitRatio) : null,
       })) as unknown as BacktestResult;
       setResult(r);
@@ -127,7 +131,7 @@ export function BacktestView({
         tpR: optTpR.split(',').map((x) => Number(x.trim())).filter((n) => !isNaN(n)),
       };
       const r = (await api.backtestOptimize({
-        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, atrMult, tpMode, timeStop: timeStop ? Number(timeStop) : null, side, signalMode, feeRate, slippageBps, minStopPct, maxStopPct, cooldownBars, use4hFilter },
+        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, atrMult, tpMode, timeStop: timeStop ? Number(timeStop) : null, side, signalMode, feeRate, slippageBps, minStopPct, maxStopPct, cooldownBars, use4hFilter, since: since || undefined, until: until || undefined },
         grid,
       })) as unknown as OptResult;
       setOptResult(r);
@@ -161,6 +165,8 @@ export function BacktestView({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 12 }}>
         <label>标的<input className="input" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
         <label>市场<select className="input" value={market} onChange={(e) => setMarket(e.target.value)}><option value="perp">合约</option><option value="spot">现货</option></select></label>
+        <label>起始日期<input className="input" type="date" value={since} onChange={(e) => setSince(e.target.value)} /></label>
+        <label>结束日期<input className="input" type="date" value={until} onChange={(e) => setUntil(e.target.value)} /></label>
         <label>实体最小%<input className="input" type="number" value={minBody} onChange={(e) => setMinBody(Number(e.target.value))} /></label>
         <label>影线最大%<input className="input" type="number" value={maxShadow} onChange={(e) => setMaxShadow(Number(e.target.value))} /></label>
         <label>连续趋势K<input className="input" type="number" value={minConsec} onChange={(e) => setMinConsec(Number(e.target.value))} /></label>
