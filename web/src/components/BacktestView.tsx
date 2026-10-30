@@ -46,7 +46,7 @@ export function BacktestView({
   const store = usePracticeStore();
   const [symbol, setSymbol] = useState(store.symbol || 'BTCUSDT');
   const [market, setMarket] = useState<string>(store.market || 'perp');
-  const [minBody, setMinBody] = useState(10);
+  const [minBody, setMinBody] = useState(8);
   const [maxShadow, setMaxShadow] = useState(30);
   const [minConsec, setMinConsec] = useState(2);
   const [emaFast, setEmaFast] = useState(21);
@@ -65,8 +65,15 @@ export function BacktestView({
   const [tpMode, setTpMode] = useState('rMultiple');
   const [timeStop, setTimeStop] = useState('');
   const [side, setSide] = useState('both');
-  const [signalMode, setSignalMode] = useState('loose');
-  const [trailR, setTrailR] = useState(1);
+  const [signalMode, setSignalMode] = useState('structure');
+  const [trailR, setTrailR] = useState(0);
+  const [rsiPeriod, setRsiPeriod] = useState(14);
+  const [rsiLongLo, setRsiLongLo] = useState(35);
+  const [rsiLongHi, setRsiLongHi] = useState(85);
+  const [rsiShortLo, setRsiShortLo] = useState(15);
+  const [rsiShortHi, setRsiShortHi] = useState(65);
+  const [volPeriod, setVolPeriod] = useState(20);
+  const [volMult, setVolMult] = useState(1.0);
   const [splitRatio, setSplitRatio] = useState('0.6');
   const [since, setSince] = useState('');
   const [until, setUntil] = useState('');
@@ -103,6 +110,13 @@ export function BacktestView({
         side,
         signalMode,
         trailR,
+        rsiPeriod,
+        rsiLongLo,
+        rsiLongHi,
+        rsiShortLo,
+        rsiShortHi,
+        volPeriod,
+        volMult,
         feeRate,
         slippageBps,
         minStopPct,
@@ -133,7 +147,7 @@ export function BacktestView({
         tpR: optTpR.split(',').map((x) => Number(x.trim())).filter((n) => !isNaN(n)),
       };
       const r = (await api.backtestOptimize({
-        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, atrMult, tpMode, timeStop: timeStop ? Number(timeStop) : null, side, signalMode, trailR, feeRate, slippageBps, minStopPct, maxStopPct, cooldownBars, use4hFilter, since: since || undefined, until: until || undefined },
+        baseParams: { symbol, market, emaFast, emaMid, emaSlow, stopMode, stopPct, atrMult, tpMode, timeStop: timeStop ? Number(timeStop) : null, side, signalMode, trailR, rsiPeriod, rsiLongLo, rsiLongHi, rsiShortLo, rsiShortHi, volPeriod, volMult, feeRate, slippageBps, minStopPct, maxStopPct, cooldownBars, use4hFilter, since: since || undefined, until: until || undefined },
         grid,
       })) as unknown as OptResult;
       setOptResult(r);
@@ -188,8 +202,13 @@ export function BacktestView({
         <label>冷却(根)<input className="input" type="number" value={cooldownBars} onChange={(e) => setCooldownBars(Number(e.target.value))} /></label>
         <label>4h过滤<input type="checkbox" checked={use4hFilter} onChange={(e) => setUse4hFilter(e.target.checked)} /></label>
         <label>方向<select className="input" value={side} onChange={(e) => setSide(e.target.value)}><option value="both">双向</option><option value="long">仅多</option><option value="short">仅空</option></select></label>
-        <label>信号模式<select className="input" value={signalMode} onChange={(e) => setSignalMode(e.target.value)}><option value="loose">回调不卡结构</option><option value="strict">回调+结构(更高低/更低高)</option></select></label>
-        <label>追踪止损(R)<input className="input" type="number" step="0.5" value={trailR} onChange={(e) => setTrailR(Number(e.target.value))} title="盈利达 trailR·R 后，止损随价格极值回撤 trailR·R 跟进；0=关闭" /></label>
+        <label>信号模式<select className="input" value={signalMode} onChange={(e) => setSignalMode(e.target.value)}><option value="structure">结构(趋势+量+RSI)≥3R</option><option value="loose">回调不卡结构</option><option value="strict">回调+结构(更高低/更低高)</option></select></label>
+        <label>追踪止损(R)<input className="input" type="number" step="0.5" value={trailR} onChange={(e) => setTrailR(Number(e.target.value))} title="盈利达 trailR·R 后，止损随价格极值回撤 trailR·R 跟进；0=关闭（结构模式默认0以保证≥3R止盈）" /></label>
+        <label title="RSI 周期">RSI周期<input className="input" type="number" value={rsiPeriod} onChange={(e) => setRsiPeriod(Number(e.target.value))} /></label>
+        <label title="多头 RSI 区间">多RSI<input className="input" type="text" value={`${rsiLongLo}-${rsiLongHi}`} onChange={(e) => { const [a, b] = e.target.value.split('-').map((x) => Number(x)); if (!isNaN(a)) setRsiLongLo(a); if (!isNaN(b)) setRsiLongHi(b); }} placeholder="35-85" /></label>
+        <label title="空头 RSI 区间">空RSI<input className="input" type="text" value={`${rsiShortLo}-${rsiShortHi}`} onChange={(e) => { const [a, b] = e.target.value.split('-').map((x) => Number(x)); if (!isNaN(a)) setRsiShortLo(a); if (!isNaN(b)) setRsiShortHi(b); }} placeholder="15-65" /></label>
+        <label title="成交量需≥均量×倍数，作为入场确认">量能倍数<input className="input" type="number" step="0.1" value={volMult} onChange={(e) => setVolMult(Number(e.target.value))} /></label>
+        <label title="成交量均线周期">量能周期<input className="input" type="number" value={volPeriod} onChange={(e) => setVolPeriod(Number(e.target.value))} /></label>
         <label>样本外比例<input className="input" value={splitRatio} onChange={(e) => setSplitRatio(e.target.value)} placeholder="0.6=前60%训练" /></label>
       </div>
 

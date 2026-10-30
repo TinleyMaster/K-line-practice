@@ -113,6 +113,42 @@ function emaSlope(emaArr, i, slopeBars) {
   return 0;
 }
 
+// RSI (Wilder)。返回与数据等长的数组，前 period 根为 null。
+function rsiSeries(closes, period) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length <= period) return out;
+  let gain = 0, loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gain += d; else loss -= d;
+  }
+  let avgGain = gain / period, avgLoss = loss / period;
+  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    const g = d >= 0 ? d : 0;
+    const l = d < 0 ? -d : 0;
+    avgGain = (avgGain * (period - 1) + g) / period;
+    avgLoss = (avgLoss * (period - 1) + l) / period;
+    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return out;
+}
+
+// 简单移动平均（用于成交量基线）。
+function smaSeries(values, period) {
+  const out = new Array(values.length).fill(null);
+  if (values.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += values[i];
+  out[period - 1] = sum / period;
+  for (let i = period; i < values.length; i++) {
+    sum += values[i] - values[i - period];
+    out[i] = sum / period;
+  }
+  return out;
+}
+
 export async function loadBars(symbol, market, limit, offset, since, until) {
   const sym = String(symbol).toUpperCase();
   const lim = Math.max(1, Math.min(Number(limit) || 20000, 100000));
@@ -130,7 +166,7 @@ export async function loadBars(symbol, market, limit, offset, since, until) {
   }
 
   const rows = await queryRows(
-    'SELECT open_time, open_px, high_px, low_px, close_px FROM ' + PRAC.schema + '.klines WHERE ' + where + ' ORDER BY open_time ASC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2),
+    'SELECT open_time, open_px, high_px, low_px, close_px, base_vol FROM ' + PRAC.schema + '.klines WHERE ' + where + ' ORDER BY open_time ASC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2),
     [...params, lim, finalOffset],
   );
   return rows.map((r) => ({
@@ -139,6 +175,7 @@ export async function loadBars(symbol, market, limit, offset, since, until) {
     high: Number(r.high_px),
     low: Number(r.low_px),
     close: Number(r.close_px),
+    volume: Number(r.base_vol) || 0,
   }));
 }
 
@@ -170,17 +207,50 @@ export function runBacktestOnBars(bars, params) {
     riskPct = 1,
     trailR = 1,
     swingWin = 3,
+    rsiPeriod = 14,
+    rsiLongLo = 45,
+    rsiLongHi = 75,
+    rsiShortLo = 25,
+    rsiShortHi = 55,
+    volPeriod = 20,
+    volMult = 1.5,
   } = params || {};
 
   if (bars.length < 100) throw new Error('数据不足');
 
   const closes = bars.map((b) => b.close);
+  const volumes = bars.map((b) => b.volume || 0);
   const eFast = emaSeries(closes, emaFast);
   const eMid = emaSeries(closes, emaMid);
   const eSlow = emaSeries(closes, emaSlow);
   const trendFlags = bars.map((b) => isTrendK(b, minBody, maxShadow));
   const mp = midPoints(bars, swingWin, 6, 0.001);
   const atr = atrSeries(bars, atrPeriod);
+  const rsi = rsiSeries(closes, Math.max(2, rsiPeriod));
+  const volSma = smaSeries(volumes, Math.max(2, volPeriod));
+
+  // 市场结构趋势：比较最近两个摆动高低点。
+  // structUp/Down 要求「更高高+更高低」(或反之)，较严；structHLup/dn 只要求核心结构特征（更高低 / 更低高），更宽松，
+  // 用于结构模式：避免把趋势中正常的「更高高未创新高」也排除掉。
+  const structUp = new Array(bars.length).fill(false);
+  const structDown = new Array(bars.length).fill(false);
+  const structHLup = new Array(bars.length).fill(false);   // 上升结构：更高的低
+  const structHLdn = new Array(bars.length).fill(false);  // 下降结构：更低的高
+  {
+    let prevL = null, lastL = null, prevH = null, lastH = null;
+    for (let i = 0; i < bars.length; i++) {
+      if (mp.lows[i] != null) { prevL = lastL; lastL = i; }
+      if (mp.highs[i] != null) { prevH = lastH; lastH = i; }
+      const loOk = prevL != null && lastL != null && mp.lows[prevL] != null && mp.lows[lastL] != null;
+      const hiOk = prevH != null && lastH != null && mp.highs[prevH] != null && mp.highs[lastH] != null;
+      if (loOk && hiOk) {
+        structUp[i] = mp.lows[lastL] > mp.lows[prevL] && mp.highs[lastH] > mp.highs[prevH];
+        structDown[i] = mp.lows[lastL] < mp.lows[prevL] && mp.highs[lastH] < mp.highs[prevH];
+        structHLup[i] = mp.lows[lastL] > mp.lows[prevL];
+        structHLdn[i] = mp.highs[lastH] < mp.highs[prevH];
+      }
+    }
+  }
 
   const defenseHigh = new Array(bars.length).fill(null);
   const defenseLow = new Array(bars.length).fill(null);
@@ -317,9 +387,17 @@ export function runBacktestOnBars(bars, params) {
       // 重写后的核心：只在「趋势确立后的回调」里入场（不追高、不追低）。
       // 趋势由 EMA 排列 + 连续趋势K 确立；回调 = 趋势中出现非趋势K 的回踩；
       // 当回调中出现趋势K 反转向上、且（strict）未跌破前低结构时，入场做多。
-      if (wantLong && emaBull && trendActiveLong && inPullbackLong && tf.bull) {
+      const isStruct = signalMode === 'structure';
+      // 结构模式：止盈至少 3R（用户要求「至少 3R 的止盈策略」）
+      const effTpR = isStruct ? Math.max(tpR, 3) : tpR;
+      const rsiOkLong = !isStruct || (rsi[i] != null && rsi[i] >= rsiLongLo && rsi[i] <= rsiLongHi);
+      const rsiOkShort = !isStruct || (rsi[i] != null && rsi[i] >= rsiShortLo && rsi[i] <= rsiShortHi);
+      const volOk = !isStruct || (volSma[i] != null && volSma[i] > 0 && bar.volume > volSma[i] * volMult);
+
+      if (wantLong && emaBull && trendActiveLong && inPullbackLong && tf.bull && rsiOkLong && volOk) {
         const structOk = signalMode !== 'strict' || (defenseLow[i] != null && pullbackLowLong != null && pullbackLowLong >= defenseLow[i] * 0.999);
-        if (structOk) {
+        const structTrendOk = !isStruct || structHLup[i];
+        if (structOk && structTrendOk) {
           let stopLoss;
           if (stopMode === 'defense') stopLoss = Math.min(defenseLow[i] ?? bar.low, bar.low);
           else if (stopMode === 'atr') stopLoss = bar.close - (atr[i] ?? bar.close * 0.02) * atrMult;
@@ -327,19 +405,20 @@ export function runBacktestOnBars(bars, params) {
           const stopDistPct = stopLoss < bar.close ? (bar.close - stopLoss) / bar.close * 100 : 999;
           if (stopLoss < bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
             const risk = bar.close - stopLoss;
-            const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * tpR : null;
+            const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * effTpR : null;
             openTrade = {
               side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-              stopLoss, takeProfit, tpR, entryRisk: risk, equityAtEntry: equityVal,
+              stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
             };
             lastEntryIdx = i;
             inPullbackLong = false;
             pullbackLowLong = null;
           }
         }
-      } else if (wantShort && emaBear && trendActiveShort && inPullbackShort && tf.bear) {
+      } else if (wantShort && emaBear && trendActiveShort && inPullbackShort && tf.bear && rsiOkShort && volOk) {
         const structOk = signalMode !== 'strict' || (defenseHigh[i] != null && pullbackHighShort != null && pullbackHighShort <= defenseHigh[i] * 1.001);
-        if (structOk) {
+        const structTrendOk = !isStruct || structHLdn[i];
+        if (structOk && structTrendOk) {
           let stopLoss;
           if (stopMode === 'defense') stopLoss = Math.max(defenseHigh[i] ?? bar.high, bar.high);
           else if (stopMode === 'atr') stopLoss = bar.close + (atr[i] ?? bar.close * 0.02) * atrMult;
@@ -347,10 +426,10 @@ export function runBacktestOnBars(bars, params) {
           const stopDistPct = stopLoss > bar.close ? (stopLoss - bar.close) / bar.close * 100 : 999;
           if (stopLoss > bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
             const risk = stopLoss - bar.close;
-            const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * tpR : null;
+            const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * effTpR : null;
             openTrade = {
               side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-              stopLoss, takeProfit, tpR, entryRisk: risk, equityAtEntry: equityVal,
+              stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
             };
             lastEntryIdx = i;
             inPullbackShort = false;
@@ -386,7 +465,7 @@ export function runBacktestOnBars(bars, params) {
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
 
   return {
-    params: { minBody, maxShadow, swingWin, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter, riskPct },
+    params: { minBody, maxShadow, swingWin, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter, riskPct, rsiPeriod, rsiLongLo, rsiLongHi, rsiShortLo, rsiShortHi, volPeriod, volMult },
     bars: bars.length,
     trades: closed.map((t) => ({
       side: t.side,
