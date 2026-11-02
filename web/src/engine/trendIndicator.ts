@@ -3,7 +3,7 @@
  *
  * 复现 MT5 指标 "Trend.mq5" 的核心逻辑：
  *   - 趋势 K 线识别（实体大、影线小）
- *   - 中期高低点标记（左右各 swingWin 根内的最高/最低，才是真正的拐点）
+ *   - 中期高低点标记（锚定 MACD 结构：零轴上方死叉前一段的极高=高点，零轴下方金叉前一段的极低=低点）
  *   - 防守位计算（下跌趋势 = 最后一个中期高点；上涨趋势 = 最后一个中期低点）
  *   - EMA 共振验证（21 / 55 / 144）
  *
@@ -16,7 +16,7 @@ registerIndicator({
   name: 'TRENDSTRUCT',
   shortName: 'TrendStruct',
   series: 'price',
-  calcParams: [40, 15, 6, 21, 55, 144],
+  calcParams: [40, 15, 12, 26, 9, 21, 55, 144],
   precision: 2,
   shouldOhlc: true,
   figures: [
@@ -31,52 +31,79 @@ registerIndicator({
   ],
   calc: (dataList, indicator) => {
     const params = indicator.calcParams as number[];
-    const minBody = Number(params?.[0] ?? 10);
-    const maxShadow = Number(params?.[1] ?? 30);
-    const swingWin = Math.max(1, Number(params?.[2] ?? 6)); // 左侧窗口：与之前几根比
-    const rightWin = 1; // 右侧只等 1 根确认 ⇒ 拐点近乎实时出现，不再滞后 6 根
-    const fastP = Math.max(1, Number(params?.[3] ?? 21));
-    const midP = Math.max(1, Number(params?.[4] ?? 55));
-    const slowP = Math.max(1, Number(params?.[5] ?? 144));
-    // 确认窗口：候选拐点需在未来 confBars 根内不被"更高高 / 更低的低"击穿，才算真拐点。
-    // 用来过滤"实体节节攀升、中途被继续突破"的半山腰假摆动（拉回中的小高点不算顶）。
-    const confBars = Math.max(1, Math.min(20, Number(params?.[6] ?? 6)));
-    const revTol = Math.max(0, Number(params?.[7] ?? 0.1)) / 100; // 百分比 → 小数（0.1% 容差忽略毛刺）
+    const minBody = Number(params?.[0] ?? 40);
+    const maxShadow = Number(params?.[1] ?? 15);
+    // 摆动高低点改为"锚定 MACD 交叉"：高位 = 零轴上方死叉前一段的极高；低位 = 零轴下方金叉前一段的极低。
+    // 这样只保留由 MACD 结构确认的趋势拐点，避免满屏高低点。
+    const mFast = Math.max(1, Number(params?.[2] ?? 12));
+    const mSlow = Math.max(1, Number(params?.[3] ?? 26));
+    const mSig = Math.max(1, Number(params?.[4] ?? 9));
+    const fastP = Math.max(1, Number(params?.[5] ?? 21));
+    const midP = Math.max(1, Number(params?.[6] ?? 55));
+    const slowP = Math.max(1, Number(params?.[7] ?? 144));
 
-    // 先在整个数据上计算候选 swing high / low：左侧 swingWin 根 + 右侧 rightWin 根都更低/更高
-    const candHigh: boolean[] = new Array(dataList.length).fill(false);
-    const candLow: boolean[] = new Array(dataList.length).fill(false);
-    for (let i = 0; i < dataList.length; i++) {
-      if (i - swingWin < 0 || i + rightWin >= dataList.length) continue;
-      let isH = true;
-      let isL = true;
-      for (let j = i - swingWin; j <= i + rightWin; j++) {
-        if (j === i) continue;
-        if (dataList[j].high >= dataList[i].high) isH = false;
-        if (dataList[j].low <= dataList[i].low) isL = false;
+    const n = dataList.length;
+
+    // EMA 计算（自动跳过前导 warmup 的空值）
+    const emaOf = (vals: number[], period: number): (number | null)[] => {
+      const out: (number | null)[] = new Array(n).fill(null);
+      let ema: number | null = null;
+      let sum = 0;
+      let count = 0;
+      for (let i = 0; i < n; i++) {
+        const v = vals[i];
+        if (v == null || !Number.isFinite(v)) continue;
+        if (count < period - 1) { sum += v; count++; }
+        else if (count === period - 1) { sum += v; ema = sum / period; out[i] = ema; count++; }
+        else { ema = (2 * v + (period - 1) * (ema as number)) / (period + 1); out[i] = ema; count++; }
       }
-      if (isH) candHigh[i] = true;
-      if (isL) candLow[i] = true;
+      return out;
+    };
+
+    const closes = dataList.map((k) => k.close);
+    const emaMF = emaOf(closes, mFast);
+    const emaMS = emaOf(closes, mSlow);
+    const macdLine: (number | null)[] = new Array(n).fill(null);
+    for (let i = 0; i < n; i++) {
+      if (emaMF[i] != null && emaMS[i] != null) macdLine[i] = (emaMF[i] as number) - (emaMS[i] as number);
     }
+    const signal = emaOf(macdLine as number[], mSig);
 
-    // 确认：候选高点若在之后 confBars 根内被更高的高点击穿 → 只是上升途中的回拉，丢弃。
-    // 真正的顶/底之后价格会反向，不会被击穿，从而保留。末 confBars 根无法确认 → 暂保留（实时最后一根）。
-    const swingHigh: boolean[] = new Array(dataList.length).fill(false);
-    const swingLow: boolean[] = new Array(dataList.length).fill(false);
-    for (let i = 0; i < dataList.length; i++) {
-      if (candHigh[i]) {
-        let broken = false;
-        for (let j = i + 1; j <= i + confBars && j < dataList.length; j++) {
-          if (dataList[j].high > dataList[i].high * (1 + revTol)) { broken = true; break; }
+    // 锚定摆动：以 MACD 交叉为每段端点，每段（上一交叉 → 本交叉）只取一个极值。
+    // 死叉且位于零轴上方 → 该段极高记为高点；金叉且位于零轴下方 → 该段极低记为低点。
+    // 找不到明确对应极值时（"没有对应"），取该段内最近的极值，效果一致。
+    const swingHigh: boolean[] = new Array(n).fill(false);
+    const swingLow: boolean[] = new Array(n).fill(false);
+    let prevCross = -1;
+    for (let i = 1; i < n; i++) {
+      const m0 = macdLine[i - 1] as number | null;
+      const m1 = macdLine[i] as number | null;
+      const s0 = signal[i - 1] as number | null;
+      const s1 = signal[i] as number | null;
+      if (m0 == null || m1 == null || s0 == null || s1 == null) continue; // warmup
+      const golden = m0 <= s0 && m1 > s1; // 金叉
+      const death = m0 >= s0 && m1 < s1; // 死叉
+      if (golden || death) {
+        const start = Math.max(0, prevCross + 1);
+        if (death && m1 > 0) {
+          // 零轴上方死叉：取前一段（上一交叉 → 本死叉）的极高作为高点
+          let best = start;
+          let bestH = -Infinity;
+          for (let j = start; j <= i; j++) {
+            if (dataList[j].high > bestH) { bestH = dataList[j].high; best = j; }
+          }
+          swingHigh[best] = true;
         }
-        if (!broken) swingHigh[i] = true;
-      }
-      if (candLow[i]) {
-        let broken = false;
-        for (let j = i + 1; j <= i + confBars && j < dataList.length; j++) {
-          if (dataList[j].low < dataList[i].low * (1 - revTol)) { broken = true; break; }
+        if (golden && m1 < 0) {
+          // 零轴下方金叉：取前一段的极低作为低点
+          let best = start;
+          let bestL = Infinity;
+          for (let j = start; j <= i; j++) {
+            if (dataList[j].low < bestL) { bestL = dataList[j].low; best = j; }
+          }
+          swingLow[best] = true;
         }
-        if (!broken) swingLow[i] = true;
+        prevCross = i;
       }
     }
 

@@ -23,41 +23,61 @@ function isTrendK(bar, minBody, maxShadow) {
   return { bull, bear };
 }
 
-function midPoints(bars, win = 3, confBars = 6, revTol = 0.001) {
-  const highs = new Array(bars.length).fill(null);
-  const lows = new Array(bars.length).fill(null);
-  // 候选拐点：左侧 win 根 + 右侧 1 根都更低/更高（右侧只等 1 根，避免滞后）
-  const rightWin = 1;
-  const candHigh = new Array(bars.length).fill(false);
-  const candLow = new Array(bars.length).fill(false);
-  for (let i = 0; i < bars.length; i++) {
-    if (i - win < 0 || i + rightWin >= bars.length) continue;
-    let isH = true;
-    let isL = true;
-    for (let j = i - win; j <= i + rightWin; j++) {
-      if (j === i) continue;
-      if (bars[j].high >= bars[i].high) isH = false;
-      if (bars[j].low <= bars[i].low) isL = false;
+// 摆动高低点：锚定 MACD 结构 —— 零轴上方死叉前一段的极高=高点，零轴下方金叉前一段的极低=低点。
+// 与 web/src/engine/trendIndicator.ts 的 TRENDSTRUCT 计算保持一致，确保"图上看到的 = 回测用的"。
+export function midPoints(bars, mFast = 12, mSlow = 26, mSig = 9) {
+  const n = bars.length;
+  const emaOf = (vals, period) => {
+    const out = new Array(n).fill(null);
+    let ema = null;
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < n; i++) {
+      const v = vals[i];
+      if (v == null || !Number.isFinite(v)) continue;
+      if (count < period - 1) { sum += v; count++; }
+      else if (count === period - 1) { sum += v; ema = sum / period; out[i] = ema; count++; }
+      else { ema = (2 * v + (period - 1) * ema) / (period + 1); out[i] = ema; count++; }
     }
-    if (isH) candHigh[i] = true;
-    if (isL) candLow[i] = true;
+    return out;
+  };
+  const closes = bars.map((b) => b.close);
+  const emaMF = emaOf(closes, mFast);
+  const emaMS = emaOf(closes, mSlow);
+  const macd = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (emaMF[i] != null && emaMS[i] != null) macd[i] = emaMF[i] - emaMS[i];
   }
-  // 确认：候选高点若在之后 confBars 根内被更高的高点击穿 → 上升途中的回拉，丢弃；
-  // 真正的顶之后价格反向，不会被击穿，保留。末 confBars 根无法确认 → 暂保留。
-  for (let i = 0; i < bars.length; i++) {
-    if (candHigh[i]) {
-      let broken = false;
-      for (let j = i + 1; j <= i + confBars && j < bars.length; j++) {
-        if (bars[j].high > bars[i].high * (1 + revTol)) { broken = true; break; }
+  const signal = emaOf(macd, mSig);
+  const highs = new Array(n).fill(null);
+  const lows = new Array(n).fill(null);
+  let prevCross = -1;
+  for (let i = 1; i < n; i++) {
+    const m0 = macd[i - 1], m1 = macd[i], s0 = signal[i - 1], s1 = signal[i];
+    if (m0 == null || m1 == null || s0 == null || s1 == null) continue; // warmup
+    const golden = m0 <= s0 && m1 > s1; // 金叉
+    const death = m0 >= s0 && m1 < s1; // 死叉
+    if (golden || death) {
+      const start = Math.max(0, prevCross + 1);
+      if (death && m1 > 0) {
+        // 零轴上方死叉：前一段（上一交叉 → 本死叉）的极高记为高点
+        let best = start;
+        let bestH = -Infinity;
+        for (let j = start; j <= i; j++) {
+          if (bars[j].high > bestH) { bestH = bars[j].high; best = j; }
+        }
+        highs[best] = bars[best].high;
       }
-      if (!broken) highs[i] = bars[i].high;
-    }
-    if (candLow[i]) {
-      let broken = false;
-      for (let j = i + 1; j <= i + confBars && j < bars.length; j++) {
-        if (bars[j].low < bars[i].low * (1 - revTol)) { broken = true; break; }
+      if (golden && m1 < 0) {
+        // 零轴下方金叉：前一段的极低记为低点
+        let best = start;
+        let bestL = Infinity;
+        for (let j = start; j <= i; j++) {
+          if (bars[j].low < bestL) { bestL = bars[j].low; best = j; }
+        }
+        lows[best] = bars[best].low;
       }
-      if (!broken) lows[i] = bars[i].low;
+      prevCross = i;
     }
   }
   return { highs, lows };
@@ -224,7 +244,7 @@ export function runBacktestOnBars(bars, params) {
   const eMid = emaSeries(closes, emaMid);
   const eSlow = emaSeries(closes, emaSlow);
   const trendFlags = bars.map((b) => isTrendK(b, minBody, maxShadow));
-  const mp = midPoints(bars, swingWin, 6, 0.001);
+  const mp = midPoints(bars, 12, 26, 9);
   const atr = atrSeries(bars, atrPeriod);
   const rsi = rsiSeries(closes, Math.max(2, rsiPeriod));
   const volSma = smaSeries(volumes, Math.max(2, volPeriod));
