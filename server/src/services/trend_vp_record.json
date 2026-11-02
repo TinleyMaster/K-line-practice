@@ -1,0 +1,1112 @@
+[
+  {
+    "type": "H",
+    "price": 73773.4,
+    "ts": "2026-04-11T19:00:00.000Z",
+    "share05": 0.01685868184042063,
+    "share10": 0.09086399722083605,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 70566.5,
+    "ts": "2026-04-12T15:00:00.000Z",
+    "share05": 0.08569636032360138,
+    "share10": 0.19818994968872675,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 78300,
+    "ts": "2026-04-17T16:00:00.000Z",
+    "share05": 0.02349455817874581,
+    "share10": 0.04417368608374414,
+    "retested": false,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 73669,
+    "ts": "2026-04-20T00:00:00.000Z",
+    "share05": 0.05168376023694999,
+    "share10": 0.05807605874734273,
+    "retested": false,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 79444,
+    "ts": "2026-04-22T16:00:00.000Z",
+    "share05": 0.018588686157479925,
+    "share10": 0.08354522503355662,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 76504.6,
+    "ts": "2026-04-23T10:00:00.000Z",
+    "share05": 0.0556940623395553,
+    "share10": 0.19306455548631749,
+    "retested": false,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 78546,
+    "ts": "2026-04-24T02:00:00.000Z",
+    "share05": 0.18600943933961225,
+    "share10": 0.5788437628174341,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 77153,
+    "ts": "2026-04-25T19:00:00.000Z",
+    "share05": 0.20057944106599346,
+    "share10": 0.6295894260196384,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 79455,
+    "ts": "2026-04-27T01:00:00.000Z",
+    "share05": 0.017389282268520996,
+    "share10": 0.07609781173876669,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 75635.6,
+    "ts": "2026-04-28T14:00:00.000Z",
+    "share05": 0.204830482461237,
+    "share10": 0.40171273730456264,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 77873.2,
+    "ts": "2026-04-29T10:00:00.000Z",
+    "share05": 0.1212800473601927,
+    "share10": 0.28502552215199434,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 74868,
+    "ts": "2026-04-29T18:00:00.000Z",
+    "share05": 0,
+    "share10": 0.06897271431955879,
+    "retested": false,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 82828.7,
+    "ts": "2026-05-06T11:00:00.000Z",
+    "share05": 0.021359525353835503,
+    "share10": 0.05255612028384032,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 79137.4,
+    "ts": "2026-05-08T03:00:00.000Z",
+    "share05": 0.04364782048779397,
+    "share10": 0.21445409936651177,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 82460.5,
+    "ts": "2026-05-10T23:00:00.000Z",
+    "share05": 0.02600722269533853,
+    "share10": 0.1212782903898804,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 79801,
+    "ts": "2026-05-12T16:00:00.000Z",
+    "share05": 0.19167667572101255,
+    "share10": 0.35155642644034946,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 81270.2,
+    "ts": "2026-05-13T09:00:00.000Z",
+    "share05": 0.3821166319756866,
+    "share10": 0.610215912150551,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 78713.8,
+    "ts": "2026-05-13T16:00:00.000Z",
+    "share05": 0.050905146605924816,
+    "share10": 0.18458094685597456,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 81999,
+    "ts": "2026-05-14T17:00:00.000Z",
+    "share05": 0.044319841409969446,
+    "share10": 0.12312868611965853,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 76014.2,
+    "ts": "2026-05-18T15:00:00.000Z",
+    "share05": 0.04671749272430317,
+    "share10": 0.2790869081219465,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 78150,
+    "ts": "2026-05-21T01:00:00.000Z",
+    "share05": 0.04750206342526095,
+    "share10": 0.32507453595587676,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 74203.6,
+    "ts": "2026-05-23T07:00:00.000Z",
+    "share05": 0.02440223043925227,
+    "share10": 0.09722599132742933,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 77887.9,
+    "ts": "2026-05-25T15:00:00.000Z",
+    "share05": 0.04961210741359642,
+    "share10": 0.2366432182475638,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 72667.9,
+    "ts": "2026-05-28T04:00:00.000Z",
+    "share05": 0.07359797277621359,
+    "share10": 0.21223478723338304,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 74293.1,
+    "ts": "2026-05-29T17:00:00.000Z",
+    "share05": 0.1325316625823898,
+    "share10": 0.5279990954906835,
+    "retested": true,
+    "broke": false,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 59080,
+    "ts": "2026-06-05T19:00:00.000Z",
+    "share05": 0,
+    "share10": 0,
+    "retested": false,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 64179.5,
+    "ts": "2026-06-08T15:00:00.000Z",
+    "share05": 0.013994643994199196,
+    "share10": 0.05776312017900169,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 60755,
+    "ts": "2026-06-09T16:00:00.000Z",
+    "share05": 0.013890488086007666,
+    "share10": 0.09917373286223118,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 67255.4,
+    "ts": "2026-06-15T15:00:00.000Z",
+    "share05": 0.036477973948260745,
+    "share10": 0.1245024562148004,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 62241,
+    "ts": "2026-06-18T17:00:00.000Z",
+    "share05": 0.07925458449022559,
+    "share10": 0.15685809061067782,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 65597.2,
+    "ts": "2026-06-22T14:00:00.000Z",
+    "share05": 0,
+    "share10": 0.046096659067827866,
+    "retested": false,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 58248.4,
+    "ts": "2026-06-25T14:00:00.000Z",
+    "share05": 0,
+    "share10": 0,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 60924.7,
+    "ts": "2026-06-27T15:00:00.000Z",
+    "share05": 0.012000236174037773,
+    "share10": 0.0894218249553872,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 58850,
+    "ts": "2026-06-29T02:00:00.000Z",
+    "share05": 0.12782065265419532,
+    "share10": 0.4287109487792925,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 60666.6,
+    "ts": "2026-06-29T17:00:00.000Z",
+    "share05": 0.03697092936986734,
+    "share10": 0.21570640977230954,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 58160,
+    "ts": "2026-06-30T15:00:00.000Z",
+    "share05": 0.03797932317264947,
+    "share10": 0.1341103186511677,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 63990.7,
+    "ts": "2026-07-05T23:00:00.000Z",
+    "share05": 0.17409740898279505,
+    "share10": 0.3466805111268691,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 61297,
+    "ts": "2026-07-06T13:00:00.000Z",
+    "share05": 0,
+    "share10": 0.08494732677855982,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 64691.9,
+    "ts": "2026-07-06T21:00:00.000Z",
+    "share05": 0,
+    "share10": 0.042053985471913115,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 61520,
+    "ts": "2026-07-08T15:00:00.000Z",
+    "share05": 0.047357885778700114,
+    "share10": 0.14889005742690015,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 64680,
+    "ts": "2026-07-10T13:00:00.000Z",
+    "share05": 0.04101706638018013,
+    "share10": 0.2707831463687032,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 61806,
+    "ts": "2026-07-13T18:00:00.000Z",
+    "share05": 0.05401977656171605,
+    "share10": 0.10650420393343626,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 65438,
+    "ts": "2026-07-15T16:00:00.000Z",
+    "share05": 0.07558958018909534,
+    "share10": 0.1899885009180481,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 62505.1,
+    "ts": "2026-07-17T13:00:00.000Z",
+    "share05": 0.03680088135182648,
+    "share10": 0.13230034520893103,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 64948.8,
+    "ts": "2026-07-19T02:00:00.000Z",
+    "share05": 0.25797185130332456,
+    "share10": 0.49608554857347736,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 63736.1,
+    "ts": "2026-07-20T06:00:00.000Z",
+    "share05": 0.03986044908026151,
+    "share10": 0.17009138357538503,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 66924.1,
+    "ts": "2026-07-21T14:00:00.000Z",
+    "share05": 0.04334434471723706,
+    "share10": 0.16059106519856262,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 63666,
+    "ts": "2026-07-24T14:00:00.000Z",
+    "share05": 0.05733313340006717,
+    "share10": 0.2194006722949099,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 65722.5,
+    "ts": "2026-07-27T06:00:00.000Z",
+    "share05": 0.015439582444355672,
+    "share10": 0.17156535790605953,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 63021,
+    "ts": "2026-07-28T01:00:00.000Z",
+    "share05": 0.09793932899094014,
+    "share10": 0.2348987057602734,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 64715.9,
+    "ts": "2026-07-29T09:00:00.000Z",
+    "share05": 0.2989818921108894,
+    "share10": 0.5092782328359393,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 63234,
+    "ts": "2026-07-29T21:00:00.000Z",
+    "share05": 0.22875933050918457,
+    "share10": 0.4359036603962919,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 65157,
+    "ts": "2026-07-30T13:00:00.000Z",
+    "share05": 0.0842855519011958,
+    "share10": 0.1793901575658817,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 62410.5,
+    "ts": "2026-07-31T14:00:00.000Z",
+    "share05": 0.056275959902077614,
+    "share10": 0.21136378341415352,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 63779,
+    "ts": "2026-08-02T22:00:00.000Z",
+    "share05": 0.4401170244060388,
+    "share10": 0.6561131280130214,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 62268.2,
+    "ts": "2026-08-03T08:00:00.000Z",
+    "share05": 0.061099515965302775,
+    "share10": 0.17418075874837582,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 65022,
+    "ts": "2026-08-05T20:00:00.000Z",
+    "share05": 0.26477564832589434,
+    "share10": 0.49550734425899917,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 64111,
+    "ts": "2026-08-06T13:00:00.000Z",
+    "share05": 0.47352593175256213,
+    "share10": 0.7236453408332778,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 65358,
+    "ts": "2026-08-07T12:00:00.000Z",
+    "share05": 0.12561179869074557,
+    "share10": 0.5114640496413614,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 64700,
+    "ts": "2026-08-09T03:00:00.000Z",
+    "share05": 0.4822534689491035,
+    "share10": 0.903161709100083,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 65482.7,
+    "ts": "2026-08-09T22:00:00.000Z",
+    "share05": 0.088933625030065,
+    "share10": 0.3689195380966827,
+    "retested": true,
+    "broke": false,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 62484.2,
+    "ts": "2026-08-14T14:00:00.000Z",
+    "share05": 0.0828247700342966,
+    "share10": 0.3521310483773034,
+    "retested": true,
+    "broke": false,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 79555.5,
+    "ts": "2026-08-21T08:00:00.000Z",
+    "share05": 0,
+    "share10": 0,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 75588,
+    "ts": "2026-08-23T05:00:00.000Z",
+    "share05": 0.02532341628382189,
+    "share10": 0.10833940712482129,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 81270.5,
+    "ts": "2026-08-25T02:00:00.000Z",
+    "share05": 0,
+    "share10": 0.07399839438031008,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 77600,
+    "ts": "2026-08-26T15:00:00.000Z",
+    "share05": 0.07065361227558026,
+    "share10": 0.13835153408766657,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 81500,
+    "ts": "2026-08-28T01:00:00.000Z",
+    "share05": 0,
+    "share10": 0.029061606576588853,
+    "retested": false,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 76853.1,
+    "ts": "2026-08-28T16:00:00.000Z",
+    "share05": 0,
+    "share10": 0.13820992124788406,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 79384.4,
+    "ts": "2026-08-30T16:00:00.000Z",
+    "share05": 0.13730682519976936,
+    "share10": 0.26772634227611053,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 76947.2,
+    "ts": "2026-08-30T23:00:00.000Z",
+    "share05": 0.1101895451383788,
+    "share10": 0.29145722135608637,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 79228.5,
+    "ts": "2026-08-31T19:00:00.000Z",
+    "share05": 0.08139263541662789,
+    "share10": 0.26586889620911847,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 76151.9,
+    "ts": "2026-09-02T10:00:00.000Z",
+    "share05": 0.012404199817921558,
+    "share10": 0.07513280161462091,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 82282.8,
+    "ts": "2026-09-03T21:00:00.000Z",
+    "share05": 0,
+    "share10": 0.03772993521622659,
+    "retested": false,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 78618.1,
+    "ts": "2026-09-04T14:00:00.000Z",
+    "share05": 0.047477199017702934,
+    "share10": 0.1542500455425658,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 80536.1,
+    "ts": "2026-09-06T23:00:00.000Z",
+    "share05": 0.03580048306850351,
+    "share10": 0.23732838436106204,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 77600.1,
+    "ts": "2026-09-08T13:00:00.000Z",
+    "share05": 0.09656441798714846,
+    "share10": 0.3122653127208915,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 79737.3,
+    "ts": "2026-09-09T08:00:00.000Z",
+    "share05": 0.08115459602942318,
+    "share10": 0.2579893932660456,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 76402.9,
+    "ts": "2026-09-10T23:00:00.000Z",
+    "share05": 0.029969436524710357,
+    "share10": 0.24531823681712767,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 79859.8,
+    "ts": "2026-09-11T14:00:00.000Z",
+    "share05": 0,
+    "share10": 0.10797017432353635,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 76458.9,
+    "ts": "2026-09-13T11:00:00.000Z",
+    "share05": 0.10526243086831935,
+    "share10": 0.4016172071855638,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 79570.9,
+    "ts": "2026-09-14T20:00:00.000Z",
+    "share05": 0.012321846942476126,
+    "share10": 0.05550950744717071,
+    "retested": true,
+    "broke": true,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 74909.4,
+    "ts": "2026-09-15T18:00:00.000Z",
+    "share05": 0,
+    "share10": 0.07751728724472856,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 81732.4,
+    "ts": "2026-09-19T01:00:00.000Z",
+    "share05": 0.11475741670001752,
+    "share10": 0.33960269107877045,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 80095.9,
+    "ts": "2026-09-20T03:00:00.000Z",
+    "share05": 0.040077116079669586,
+    "share10": 0.16553829887939936,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 87385.1,
+    "ts": "2026-09-21T20:00:00.000Z",
+    "share05": 0.028966105855079853,
+    "share10": 0.05001787767151955,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 83102.7,
+    "ts": "2026-09-24T10:00:00.000Z",
+    "share05": 0.04644984005371689,
+    "share10": 0.23018349119318662,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 85146.4,
+    "ts": "2026-09-27T13:00:00.000Z",
+    "share05": 0.07460254288181832,
+    "share10": 0.19430896414456564,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 82551.6,
+    "ts": "2026-09-28T09:00:00.000Z",
+    "share05": 0.058158045072083636,
+    "share10": 0.39147577287322854,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 84554.9,
+    "ts": "2026-09-29T13:00:00.000Z",
+    "share05": 0.26404192186305975,
+    "share10": 0.5344840003336712,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 82851.5,
+    "ts": "2026-09-29T16:00:00.000Z",
+    "share05": 0.17866673275664607,
+    "share10": 0.4473246854109784,
+    "retested": true,
+    "broke": false,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 87249.6,
+    "ts": "2026-10-02T12:00:00.000Z",
+    "share05": 0,
+    "share10": 0.061151045579983715,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "L",
+    "price": 83841.9,
+    "ts": "2026-10-02T18:00:00.000Z",
+    "share05": 0.24063768253290968,
+    "share10": 0.4663936864020501,
+    "retested": true,
+    "broke": false,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 86976.1,
+    "ts": "2026-10-05T01:00:00.000Z",
+    "share05": 0.048730615340499495,
+    "share10": 0.2565520052336206,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 84910,
+    "ts": "2026-10-05T16:00:00.000Z",
+    "share05": 0.16330653499250355,
+    "share10": 0.35999789948262473,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 86664.9,
+    "ts": "2026-10-06T15:00:00.000Z",
+    "share05": 0.10986885578267507,
+    "share10": 0.2966935593177105,
+    "retested": false,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 80344.8,
+    "ts": "2026-10-08T17:00:00.000Z",
+    "share05": 0.03241354021194905,
+    "share10": 0.0904970753613164,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 84340.2,
+    "ts": "2026-10-12T06:00:00.000Z",
+    "share05": 0.05581596568430241,
+    "share10": 0.34576872652198004,
+    "retested": true,
+    "broke": false,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 80985,
+    "ts": "2026-10-13T00:00:00.000Z",
+    "share05": 0.04852151422776232,
+    "share10": 0.15816179222313367,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 84134.2,
+    "ts": "2026-10-13T08:00:00.000Z",
+    "share05": 0.1267079319934023,
+    "share10": 0.3676697813767752,
+    "retested": true,
+    "broke": false,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 79732.3,
+    "ts": "2026-10-15T13:00:00.000Z",
+    "share05": 0,
+    "share10": 0.0402411188019175,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 82639.2,
+    "ts": "2026-10-15T17:00:00.000Z",
+    "share05": 0.12421474977100705,
+    "share10": 0.46337411427480635,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 80780,
+    "ts": "2026-10-16T17:00:00.000Z",
+    "share05": 0.22584153487246275,
+    "share10": 0.5256058652084991,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 82268.7,
+    "ts": "2026-10-18T09:00:00.000Z",
+    "share05": 0.42714203752896596,
+    "share10": 0.808790914618496,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 80622,
+    "ts": "2026-10-18T20:00:00.000Z",
+    "share05": 0.03636730511505656,
+    "share10": 0.16894459095146092,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 83157.9,
+    "ts": "2026-10-19T07:00:00.000Z",
+    "share05": 0.1405348002420874,
+    "share10": 0.4306230103999077,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "L",
+    "price": 81146.4,
+    "ts": "2026-10-20T01:00:00.000Z",
+    "share05": 0.1357766505658541,
+    "share10": 0.2821887677187818,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  },
+  {
+    "type": "H",
+    "price": 84875.2,
+    "ts": "2026-10-21T16:00:00.000Z",
+    "share05": 0.07805510836907259,
+    "share10": 0.1538463083890937,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 79178.6,
+    "ts": "2026-10-24T15:00:00.000Z",
+    "share05": 0,
+    "share10": 0.19777014299448267,
+    "retested": true,
+    "broke": false,
+    "strength": "mid"
+  },
+  {
+    "type": "H",
+    "price": 81759,
+    "ts": "2026-10-28T20:00:00.000Z",
+    "share05": 0.061577504268375625,
+    "share10": 0.20922576645166974,
+    "retested": true,
+    "broke": true,
+    "strength": "mid"
+  },
+  {
+    "type": "L",
+    "price": 76314.9,
+    "ts": "2026-10-30T19:00:00.000Z",
+    "share05": 0.039990297417832936,
+    "share10": 0.13702719827625748,
+    "retested": true,
+    "broke": false,
+    "strength": "weak"
+  },
+  {
+    "type": "H",
+    "price": 78231.3,
+    "ts": "2026-11-01T09:00:00.000Z",
+    "share05": 0.187344406129371,
+    "share10": 0.5419054002189744,
+    "retested": true,
+    "broke": true,
+    "strength": "strong"
+  }
+]
