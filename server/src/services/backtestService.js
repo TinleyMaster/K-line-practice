@@ -80,6 +80,38 @@ export function midPoints(bars, mFast = 12, mSlow = 26, mSig = 9) {
       prevCross = i;
     }
   }
+  // 合并连续同类型点：保证高/低严格交替（连续低点/高点只保留最极端的那个）
+  return enforceAlternation(highs, lows);
+}
+
+// 合并连续同类型摆动点：保证高/低严格交替。连续两个低点只保留更低的，高点同理。
+function enforceAlternation(highsIn, lowsIn) {
+  const n = highsIn.length;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    if (highsIn[i] != null) pts.push({ i, type: 'H', v: highsIn[i] });
+    else if (lowsIn[i] != null) pts.push({ i, type: 'L', v: lowsIn[i] });
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      if (pts[k].type === pts[k + 1].type) {
+        const a = pts[k];
+        const b = pts[k + 1];
+        const keep = a.type === 'H' ? (a.v >= b.v ? a : b) : (a.v <= b.v ? a : b);
+        pts.splice(k, 2, keep);
+        changed = true;
+        break;
+      }
+    }
+  }
+  const highs = new Array(n).fill(null);
+  const lows = new Array(n).fill(null);
+  for (const p of pts) {
+    if (p.type === 'H') highs[p.i] = p.v;
+    else lows[p.i] = p.v;
+  }
   return { highs, lows };
 }
 

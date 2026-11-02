@@ -12,6 +12,126 @@
  */
 import { registerIndicator, registerOverlay } from 'klinecharts';
 
+/**
+ * 合并连续同类型摆动点：保证高/低严格交替。
+ * 当序列里出现两个及以上连续低点（或连续高点）时，只保留最极端的那个
+ * （低点取更低、高点取更高），其余丢弃。这样 H-L-H-L 结构才干净，
+ * 之后才能可靠地判断"更高高/更高低"等趋势特征。
+ */
+function enforceAlternation(highsIn: (number | null)[], lowsIn: (number | null)[]) {
+  const n = highsIn.length;
+  const pts: { i: number; type: 'H' | 'L'; v: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    if (highsIn[i] != null) pts.push({ i, type: 'H', v: highsIn[i] as number });
+    else if (lowsIn[i] != null) pts.push({ i, type: 'L', v: lowsIn[i] as number });
+  }
+  // 反复扫描，合并相邻同类型点，直到严格交替
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      if (pts[k].type === pts[k + 1].type) {
+        const a = pts[k];
+        const b = pts[k + 1];
+        const keep = a.type === 'H' ? (a.v >= b.v ? a : b) : (a.v <= b.v ? a : b);
+        pts.splice(k, 2, keep);
+        changed = true;
+        break;
+      }
+    }
+  }
+  const highs = new Array(n).fill(null);
+  const lows = new Array(n).fill(null);
+  for (const p of pts) {
+    if (p.type === 'H') highs[p.i] = p.v;
+    else lows[p.i] = p.v;
+  }
+  return { highs, lows };
+}
+
+/** 一段被识别出的趋势行情 */
+export interface TrendMove {
+  dir: 'up' | 'down';
+  startIdx: number;
+  endIdx: number;
+  startPrice: number;
+  endPrice: number;
+}
+
+/**
+ * 从 TRENDSTRUCT 指标的结算结果（midHigh / midLow 仅在拐点处非空）重建严格交替的摆动序列。
+ */
+export function buildSeq(
+  result: Array<{ midHigh?: number | null; midLow?: number | null }>,
+): Array<{ i: number; type: 'H' | 'L'; price: number }> {
+  const seq: Array<{ i: number; type: 'H' | 'L'; price: number }> = [];
+  for (let i = 0; i < result.length; i++) {
+    const r = result[i];
+    if (r && r.midHigh != null) seq.push({ i, type: 'H', price: r.midHigh as number });
+    else if (r && r.midLow != null) seq.push({ i, type: 'L', price: r.midLow as number });
+  }
+  return seq;
+}
+
+/**
+ * 从摆动序列识别"趋势行情"：用结构破坏判定（而非单根冲动）。
+ *   - 上涨行情：只要低点持续抬高（HL）就延续，直到出现更低低（LL）才结束；
+ *   - 下跌行情：高点持续降低（LH）就延续，直到出现更高高（HH）才结束。
+ * 中途的更低高 / 更高低只是回调，不破坏趋势。
+ * 只保留"真正展开"的行情：至少延伸过一次（出现更高高 / 更低低），且幅度 > minMagnitude。
+ * 与 server/src/services/analyze_trends.mjs 的 detectMoves 同算法、同口径。
+ */
+export function detectTrendMoves(
+  seq: Array<{ i: number; type: 'H' | 'L'; price: number }>,
+  minMagnitude = 0.01,
+): TrendMove[] {
+  const out: Array<TrendMove & { ext: boolean; legs: number }> = [];
+  let cur: (TrendMove & { ext: boolean; legs: number }) | null = null;
+  let lastHigh: { i: number; price: number } | null = null;
+  let lastLow: { i: number; price: number } | null = null;
+  for (const s of seq) {
+    if (s.type === 'H') {
+      if (cur && cur.dir === 'up') {
+        if (lastHigh && s.price > lastHigh.price) {
+          cur.endIdx = s.i; cur.endPrice = s.price; cur.legs++; cur.ext = true;
+        }
+      } else if (cur && cur.dir === 'down') {
+        if (lastHigh && s.price < lastHigh.price) {
+          cur.endIdx = s.i; cur.endPrice = s.price; cur.legs++; cur.ext = true;
+        } else {
+          out.push(cur); cur = null;
+        }
+      }
+      if (!cur && lastHigh && lastLow && s.price < lastHigh.price) {
+        cur = { dir: 'down', startIdx: lastHigh.i, startPrice: lastHigh.price, endIdx: s.i, endPrice: s.price, legs: 1, ext: false };
+        out.push(cur);
+      }
+      lastHigh = { i: s.i, price: s.price };
+    } else {
+      if (cur && cur.dir === 'up') {
+        if (lastLow && s.price > lastLow.price) {
+          cur.endIdx = s.i; cur.endPrice = s.price; cur.legs++; cur.ext = true;
+        } else {
+          out.push(cur); cur = null;
+        }
+      } else if (cur && cur.dir === 'down') {
+        if (lastLow && s.price < lastLow.price) {
+          cur.endIdx = s.i; cur.endPrice = s.price; cur.legs++; cur.ext = true;
+        }
+      }
+      if (!cur && lastHigh && lastLow && s.price > lastLow.price) {
+        cur = { dir: 'up', startIdx: lastLow.i, startPrice: lastLow.price, endIdx: s.i, endPrice: s.price, legs: 1, ext: false };
+        out.push(cur);
+      }
+      lastLow = { i: s.i, price: s.price };
+    }
+  }
+  if (cur) out.push(cur);
+  return out
+    .filter((m) => m.ext && Math.abs(m.endPrice - m.startPrice) / m.startPrice > minMagnitude)
+    .map(({ ext, legs, ...rest }) => rest);
+}
+
 registerIndicator({
   name: 'TRENDSTRUCT',
   shortName: 'TrendStruct',
@@ -72,8 +192,8 @@ registerIndicator({
     // 锚定摆动：以 MACD 交叉为每段端点，每段（上一交叉 → 本交叉）只取一个极值。
     // 死叉且位于零轴上方 → 该段极高记为高点；金叉且位于零轴下方 → 该段极低记为低点。
     // 找不到明确对应极值时（"没有对应"），取该段内最近的极值，效果一致。
-    const swingHigh: boolean[] = new Array(n).fill(false);
-    const swingLow: boolean[] = new Array(n).fill(false);
+    const highs: (number | null)[] = new Array(n).fill(null);
+    const lows: (number | null)[] = new Array(n).fill(null);
     let prevCross = -1;
     for (let i = 1; i < n; i++) {
       const m0 = macdLine[i - 1] as number | null;
@@ -92,7 +212,7 @@ registerIndicator({
           for (let j = start; j <= i; j++) {
             if (dataList[j].high > bestH) { bestH = dataList[j].high; best = j; }
           }
-          swingHigh[best] = true;
+          highs[best] = dataList[best].high;
         }
         if (golden && m1 < 0) {
           // 零轴下方金叉：取前一段的极低作为低点
@@ -101,11 +221,16 @@ registerIndicator({
           for (let j = start; j <= i; j++) {
             if (dataList[j].low < bestL) { bestL = dataList[j].low; best = j; }
           }
-          swingLow[best] = true;
+          lows[best] = dataList[best].low;
         }
         prevCross = i;
       }
     }
+
+    // 合并连续同类型点：保证高/低严格交替（出现两个及以上连续低点/高点时只保留最极端的那个）
+    const merged = enforceAlternation(highs, lows);
+    const swingHigh = merged.highs;
+    const swingLow = merged.lows;
 
     let emaFastVal: number | undefined;
     let emaMidVal: number | undefined;
@@ -132,8 +257,8 @@ registerIndicator({
         trendBear = k.close;
       }
 
-      const midHigh = swingHigh[i] ? k.high : undefined;
-      const midLow = swingLow[i] ? k.low : undefined;
+      const midHigh = swingHigh[i] ?? undefined;
+      const midLow = swingLow[i] ?? undefined;
       if (midHigh !== undefined) lastMidHigh = midHigh;
       if (midLow !== undefined) lastMidLow = midLow;
 
@@ -271,5 +396,51 @@ registerOverlay({
         styles: { style: 'stroke', color: ring, borderColor: ring, borderSize: 2 },
       },
     ];
+  },
+});
+
+/**
+ * 趋势行情色块区间标记：在每段被识别出的趋势行情上，用半透明色块填出它的"价格区间"，
+ * 并在起止摆动点画实心圆。上涨=绿色、下跌=红色。
+ *
+ * 每个 overlay 实例承载一段趋势，points 固定 6 个（数据坐标）：
+ *   [0..3] = 区间矩形的四个角（startTime,top / endTime,top / endTime,bottom / startTime,bottom）
+ *   [4]    = 起点摆动点（timestamp, startPrice）
+ *   [5]    = 终点摆动点（timestamp, endPrice）
+ * createPointFigures 据此画出 1 个矩形 + 2 个圆心。
+ */
+registerOverlay({
+  name: 'trendRegime',
+  totalStep: 6,
+  createPointFigures: ({ coordinates, overlay }) => {
+    const ext = (overlay.extendData || {}) as { dir?: 'up' | 'down' };
+    const dir = ext.dir || 'up';
+    const fill = dir === 'up' ? 'rgba(14,203,129,0.12)' : 'rgba(246,70,93,0.12)';
+    const border = dir === 'up' ? 'rgba(14,203,129,0.55)' : 'rgba(246,70,93,0.55)';
+    const mc = dir === 'up' ? '#0ECB81' : '#F6465D';
+    if (coordinates.length < 6) return [];
+    const xs = coordinates.slice(0, 4).map((p) => p.x);
+    const ys = coordinates.slice(0, 4).map((p) => p.y);
+    const x0 = Math.min(...xs);
+    const x1 = Math.max(...xs);
+    const y0 = Math.min(...ys);
+    const y1 = Math.max(...ys);
+    return [
+      {
+        type: 'rect',
+        attrs: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+        styles: { style: 'fill', color: fill, borderColor: border, borderSize: 1 },
+      },
+      {
+        type: 'circle',
+        attrs: { x: coordinates[4].x, y: coordinates[4].y, r: 5 },
+        styles: { style: 'fill', color: mc, borderColor: '#ffffff', borderSize: 1.5 },
+      },
+      {
+        type: 'circle',
+        attrs: { x: coordinates[5].x, y: coordinates[5].y, r: 5 },
+        styles: { style: 'fill', color: mc, borderColor: '#ffffff', borderSize: 1.5 },
+      },
+    ] as never;
   },
 });

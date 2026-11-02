@@ -13,6 +13,7 @@ import type { Bar, ChartPeriod, Market, OpenTrade } from '../types';
 import { derive4h, fmtPrice, fmtTime, pricePrecision, FOUR_HOURS, HOUR } from '../engine/bars';
 import { dir, fmtCompact, fmtPct, fmtSigned } from '../engine/format';
 import { getIndicatorSpec, splitByGroup, type IndicatorSpec } from '../engine/indicators';
+import { buildSeq, detectTrendMoves } from '../engine/trendIndicator';
 import { api } from '../api';
 
 /** 向左无限加载历史 K 线时，单次从后端拉取的批次大小（1h / 15m 通用） */
@@ -1296,6 +1297,62 @@ export function ChartPanel({
       cancelled = true;
     };
   }, [symbol, market, period, indicators1h, indicators4h]);
+
+  // ---------- 趋势行情色块区间标记（基于 TRENDSTRUCT 的摆动点识别） ----------
+  // 仅当当前周期启用了 TRENDSTRUCT 时绘制：把每段被识别出的趋势行情用半透明色块填出价格区间，
+  // 并在起止摆动点画实心圆（上涨绿 / 下跌红），一眼看清哪段是趋势。
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.removeOverlay({ groupId: 'trend-regime' });
+
+    const names = period === '4h' ? indicators4h : indicators1h;
+    if (!names.includes('TRENDSTRUCT')) return;
+
+    const inds = chart.getIndicators({ name: 'TRENDSTRUCT' });
+    const result = inds && inds[0] && inds[0].result;
+    if (!result || !result.length) return;
+
+    const seq = buildSeq(result as Array<{ midHigh?: number | null; midLow?: number | null }>);
+    const moves = detectTrendMoves(seq);
+    if (!moves.length) return;
+
+    const data = chart.getDataList() as Array<{ timestamp: number; high: number; low: number }>;
+    if (!data || !data.length) return;
+
+    const overlays: Array<Record<string, unknown>> = [];
+    for (const m of moves) {
+      const startT = data[m.startIdx]?.timestamp;
+      const endT = data[m.endIdx]?.timestamp;
+      if (startT == null || endT == null) continue;
+      // 区间矩形的上下边界 = 该段时间内的极值（最高高 / 最低低），把整段趋势的"领地"填出来
+      let top = -Infinity;
+      let bottom = Infinity;
+      for (let i = m.startIdx; i <= m.endIdx; i++) {
+        const d = data[i];
+        if (!d) continue;
+        if (d.high > top) top = d.high;
+        if (d.low < bottom) bottom = d.low;
+      }
+      if (!Number.isFinite(top) || !Number.isFinite(bottom)) continue;
+      overlays.push({
+        name: 'trendRegime',
+        groupId: 'trend-regime',
+        lock: true,
+        zLevel: 5,
+        points: [
+          { timestamp: startT, value: top },
+          { timestamp: endT, value: top },
+          { timestamp: endT, value: bottom },
+          { timestamp: startT, value: bottom },
+          { timestamp: startT, value: m.startPrice },
+          { timestamp: endT, value: m.endPrice },
+        ],
+        extendData: { dir: m.dir },
+      });
+    }
+    if (overlays.length) chart.createOverlay(overlays as never);
+  }, [symbol, market, period, indicators1h, indicators4h, activeBars]);
 
   // ---------- 换标的 / 换周期 / 换起点 / 换市场 / cursor 首次就绪：重建 feed 并 init ----------
   useEffect(() => {
