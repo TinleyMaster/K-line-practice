@@ -1,0 +1,461 @@
+[
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-04-07T20:00:00.000Z",
+      "low": 68975.9,
+      "high": 69500,
+      "close": 69285.2,
+      "price": 68975.9
+    },
+    "end": {
+      "ts": "2026-04-27T01:00:00.000Z",
+      "low": 78671.8,
+      "high": 79455,
+      "close": 79245.3,
+      "price": 79455
+    },
+    "legs": 7,
+    "durationBars": 461,
+    "duration": 461,
+    "magnitude": 14.37550876666302,
+    "rsiStart": null,
+    "macdAbove0": false,
+    "volRatio": null,
+    "atrPct": null,
+    "emaSlope": null,
+    "adversePct": 5.914431673052363
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-04-27T01:00:00.000Z",
+      "low": 78671.8,
+      "high": 79455,
+      "close": 79245.3,
+      "price": 79455
+    },
+    "end": {
+      "ts": "2026-04-29T18:00:00.000Z",
+      "low": 74868,
+      "high": 76220,
+      "close": 75470.1,
+      "price": 74868
+    },
+    "legs": 2,
+    "durationBars": 65,
+    "duration": 65,
+    "magnitude": 4.763941836298174,
+    "rsiStart": 76.7302224486624,
+    "macdAbove0": true,
+    "volRatio": 2.0170563889246127,
+    "atrPct": 0.7720370479186551,
+    "emaSlope": 0.08624596258900848,
+    "adversePct": 2.958395253028985
+  },
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-04-29T18:00:00.000Z",
+      "low": 74868,
+      "high": 76220,
+      "close": 75470.1,
+      "price": 74868
+    },
+    "end": {
+      "ts": "2026-05-12T16:00:00.000Z",
+      "low": 79801,
+      "high": 80400,
+      "close": 79967.1,
+      "price": 79801
+    },
+    "legs": 2,
+    "durationBars": 310,
+    "duration": 310,
+    "magnitude": 5.958651174438618,
+    "rsiStart": 32.9719509263945,
+    "macdAbove0": false,
+    "volRatio": 2.9854476798371348,
+    "atrPct": 0.8040366322771038,
+    "emaSlope": -0.0990162179259161,
+    "adversePct": 4.456547066415388
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-05-14T17:00:00.000Z",
+      "low": 81211.6,
+      "high": 81999,
+      "close": 81620,
+      "price": 81999
+    },
+    "end": {
+      "ts": "2026-06-08T15:00:00.000Z",
+      "low": 63673,
+      "high": 64179.5,
+      "close": 63745.4,
+      "price": 64179.5
+    },
+    "legs": 7,
+    "durationBars": 598,
+    "duration": 598,
+    "magnitude": 21.8997794658172,
+    "rsiStart": 68.54661951946838,
+    "macdAbove0": true,
+    "volRatio": 1.7696310182342414,
+    "atrPct": 0.7469122360370242,
+    "emaSlope": 0.14251857606686477,
+    "adversePct": 8.750846310088017
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-06-22T14:00:00.000Z",
+      "low": 64802.3,
+      "high": 65597.2,
+      "close": 64943,
+      "price": 65597.2
+    },
+    "end": {
+      "ts": "2026-06-30T15:00:00.000Z",
+      "low": 58160,
+      "high": 58785.6,
+      "close": 58356.2,
+      "price": 58160
+    },
+    "legs": 3,
+    "durationBars": 193,
+    "duration": 193,
+    "magnitude": 10.142432594736928,
+    "rsiStart": 59.32312657629977,
+    "macdAbove0": true,
+    "volRatio": 2.0053847900217763,
+    "atrPct": 0.7839354946671984,
+    "emaSlope": 0.100777686035772,
+    "adversePct": 5.714975012924352
+  },
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-06-30T15:00:00.000Z",
+      "low": 58160,
+      "high": 58785.6,
+      "close": 58356.2,
+      "price": 58160
+    },
+    "end": {
+      "ts": "2026-07-21T14:00:00.000Z",
+      "low": 66609,
+      "high": 66924.1,
+      "close": 66804.3,
+      "price": 66924.1
+    },
+    "legs": 8,
+    "durationBars": 503,
+    "duration": 503,
+    "magnitude": 14.47678224421742,
+    "rsiStart": 30.270437622002333,
+    "macdAbove0": false,
+    "volRatio": 1.5427894779421079,
+    "atrPct": 0.8227557748109601,
+    "emaSlope": -0.1430684104350276,
+    "adversePct": 4.903086785208042
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-07-21T14:00:00.000Z",
+      "low": 66609,
+      "high": 66924.1,
+      "close": 66804.3,
+      "price": 66924.1
+    },
+    "end": {
+      "ts": "2026-07-29T09:00:00.000Z",
+      "low": 64353.2,
+      "high": 64715.9,
+      "close": 64660.7,
+      "price": 64715.9
+    },
+    "legs": 3,
+    "durationBars": 187,
+    "duration": 187,
+    "magnitude": 3.2087754830153234,
+    "rsiStart": 73.66875954696987,
+    "macdAbove0": true,
+    "volRatio": 1.843289670609385,
+    "atrPct": 0.5017106788070707,
+    "emaSlope": 0.12286078458497682,
+    "adversePct": 3.2808757087843823
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-07-30T13:00:00.000Z",
+      "low": 64663,
+      "high": 65157,
+      "close": 64995.9,
+      "price": 65157
+    },
+    "end": {
+      "ts": "2026-08-03T08:00:00.000Z",
+      "low": 62268.2,
+      "high": 62624,
+      "close": 62512.4,
+      "price": 62268.2
+    },
+    "legs": 2,
+    "durationBars": 91,
+    "duration": 91,
+    "magnitude": 3.821010248338742,
+    "rsiStart": 65.64954936399754,
+    "macdAbove0": true,
+    "volRatio": 2.0794147462756545,
+    "atrPct": 0.5053319536625044,
+    "emaSlope": 0.0866918989080667,
+    "adversePct": 2.491129509166169
+  },
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-08-03T08:00:00.000Z",
+      "low": 62268.2,
+      "high": 62624,
+      "close": 62512.4,
+      "price": 62268.2
+    },
+    "end": {
+      "ts": "2026-08-09T22:00:00.000Z",
+      "low": 64936.2,
+      "high": 65482.7,
+      "close": 65046.3,
+      "price": 65482.7
+    },
+    "legs": 4,
+    "durationBars": 158,
+    "duration": 158,
+    "magnitude": 4.053435798337612,
+    "rsiStart": 30.934068065784402,
+    "macdAbove0": false,
+    "volRatio": 1.9403110726645592,
+    "atrPct": 0.4069410211059086,
+    "emaSlope": -0.07007355678959402,
+    "adversePct": 1.4010642551751713
+  },
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-08-14T14:00:00.000Z",
+      "low": 62484.2,
+      "high": 62774.9,
+      "close": 62581,
+      "price": 62484.2
+    },
+    "end": {
+      "ts": "2026-08-28T01:00:00.000Z",
+      "low": 80386.6,
+      "high": 81500,
+      "close": 80467.1,
+      "price": 81500
+    },
+    "legs": 4,
+    "durationBars": 323,
+    "duration": 323,
+    "magnitude": 28.580719387673586,
+    "rsiStart": 27.747515014896933,
+    "macdAbove0": false,
+    "volRatio": 1.6634970993933862,
+    "atrPct": 0.36281950559463166,
+    "emaSlope": -0.06853182650765374,
+    "adversePct": 6.510716820440033
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-08-28T01:00:00.000Z",
+      "low": 80386.6,
+      "high": 81500,
+      "close": 80467.1,
+      "price": 81500
+    },
+    "end": {
+      "ts": "2026-09-02T10:00:00.000Z",
+      "low": 76151.9,
+      "high": 76723.8,
+      "close": 76639.2,
+      "price": 76151.9
+    },
+    "legs": 3,
+    "durationBars": 129,
+    "duration": 129,
+    "magnitude": 4.75709948537975,
+    "rsiStart": 64.01607629412709,
+    "macdAbove0": true,
+    "volRatio": 2.296182402310024,
+    "atrPct": 0.6870535244682818,
+    "emaSlope": 0.07043558333225934,
+    "adversePct": 3.2936862663965254
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-09-06T23:00:00.000Z",
+      "low": 79964.3,
+      "high": 80536.1,
+      "close": 80301.1,
+      "price": 80536.1
+    },
+    "end": {
+      "ts": "2026-09-10T23:00:00.000Z",
+      "low": 76402.9,
+      "high": 76840.8,
+      "close": 76535.7,
+      "price": 76402.9
+    },
+    "legs": 2,
+    "durationBars": 96,
+    "duration": 96,
+    "magnitude": 4.689101394625987,
+    "rsiStart": 65.01104324664884,
+    "macdAbove0": true,
+    "volRatio": 2.6902696834920623,
+    "atrPct": 0.37127570733568743,
+    "emaSlope": 0.020326676893513064,
+    "adversePct": 2.754120162216282
+  },
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-09-15T18:00:00.000Z",
+      "low": 74909.4,
+      "high": 77174.7,
+      "close": 75955.6,
+      "price": 74909.4
+    },
+    "end": {
+      "ts": "2026-09-24T10:00:00.000Z",
+      "low": 83102.7,
+      "high": 83530,
+      "close": 83473.5,
+      "price": 83102.7
+    },
+    "legs": 3,
+    "durationBars": 208,
+    "duration": 208,
+    "magnitude": 9.897756057486207,
+    "rsiStart": 34.791589950766706,
+    "macdAbove0": false,
+    "volRatio": 3.595677138050092,
+    "atrPct": 1.0966829694757385,
+    "emaSlope": -0.1074719750798303,
+    "adversePct": 5.21038483677424
+  },
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-09-29T16:00:00.000Z",
+      "low": 82851.5,
+      "high": 83261.7,
+      "close": 83023.1,
+      "price": 82851.5
+    },
+    "end": {
+      "ts": "2026-10-05T16:00:00.000Z",
+      "low": 84910,
+      "high": 85287.1,
+      "close": 85260,
+      "price": 84910
+    },
+    "legs": 2,
+    "durationBars": 144,
+    "duration": 144,
+    "magnitude": 2.6943103786777343,
+    "rsiStart": 40.504740983930475,
+    "macdAbove0": true,
+    "volRatio": 1.0958985815451527,
+    "atrPct": 0.6286950451319795,
+    "emaSlope": -0.007834757753260164,
+    "adversePct": 3.9056912581834315
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-10-06T15:00:00.000Z",
+      "low": 85666.6,
+      "high": 86664.9,
+      "close": 85675.1,
+      "price": 86664.9
+    },
+    "end": {
+      "ts": "2026-10-18T20:00:00.000Z",
+      "low": 80622,
+      "high": 80968.4,
+      "close": 80932.1,
+      "price": 80622
+    },
+    "legs": 6,
+    "durationBars": 293,
+    "duration": 293,
+    "magnitude": 5.536030888787991,
+    "rsiStart": 46.85297069067678,
+    "macdAbove0": true,
+    "volRatio": 2.0854959068090944,
+    "atrPct": 0.5822372674715692,
+    "emaSlope": 0.03885502259663366,
+    "adversePct": 4.972817158048802
+  },
+  {
+    "dir": "up",
+    "start": {
+      "ts": "2026-10-18T20:00:00.000Z",
+      "low": 80622,
+      "high": 80968.4,
+      "close": 80932.1,
+      "price": 80622
+    },
+    "end": {
+      "ts": "2026-10-21T16:00:00.000Z",
+      "low": 84447.2,
+      "high": 84875.2,
+      "close": 84506,
+      "price": 84875.2
+    },
+    "legs": 2,
+    "durationBars": 68,
+    "duration": 68,
+    "magnitude": 4.415923965892389,
+    "rsiStart": 37.01319900212148,
+    "macdAbove0": false,
+    "volRatio": 1.3464960142551787,
+    "atrPct": 0.3706982461960068,
+    "emaSlope": -0.056027751807800084,
+    "adversePct": 2.418892251968845
+  },
+  {
+    "dir": "down",
+    "start": {
+      "ts": "2026-10-21T16:00:00.000Z",
+      "low": 84447.2,
+      "high": 84875.2,
+      "close": 84506,
+      "price": 84875.2
+    },
+    "end": {
+      "ts": "2026-11-01T09:00:00.000Z",
+      "low": 77917,
+      "high": 78231.3,
+      "close": 78082.8,
+      "price": 78231.3
+    },
+    "legs": 3,
+    "durationBars": 257,
+    "duration": 257,
+    "magnitude": 7.600880410858397,
+    "rsiStart": 78.41020265007262,
+    "macdAbove0": true,
+    "volRatio": 1.1327678297700106,
+    "atrPct": 0.5585005093701289,
+    "emaSlope": 0.12177686816109887,
+    "adversePct": 3.504861161980625
+  }
+]
