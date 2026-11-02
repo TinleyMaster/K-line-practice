@@ -314,8 +314,8 @@ registerIndicator({
       { color: '#FFFFFF', size: 1.5 },
     ],
     circles: [
-      { upColor: '#C9CDD4', downColor: '#C9CDD4', noChangeColor: '#C9CDD4' }, // 摆动高（中性灰白小圆点）
-      { upColor: '#C9CDD4', downColor: '#C9CDD4', noChangeColor: '#C9CDD4' }, // 摆动低（同一中性色，位置已区分高低）
+      { upColor: '#FFA726', downColor: '#FFA726', noChangeColor: '#FFA726' }, // 摆动高（橙）
+      { upColor: '#42A5F5', downColor: '#42A5F5', noChangeColor: '#42A5F5' }, // 摆动低（蓝）
     ],
   },
 });
