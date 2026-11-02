@@ -248,6 +248,17 @@ export function vpStopFor(bars, i, side, entryPrice, vpWindow, vpNB, vaPct, vpSt
   return stop;
 }
 
+// LVN 减仓触发器的"危险地形"集合：取入场前窗口的 VP 剖面，提取落在 [止损, 止盈] 信封内的 LVN 价位（真空带）。
+// 这些价位是持仓路径上"无人交易、穿过会飞快"的危险区，进入后减仓/平仓，符合 VP 描述性本质。
+export function lvnZonesFor(bars, i, entryPrice, stopLoss, takeProfit, lvnReduce, lvnWindow, vpNB, vaPct) {
+  if (lvnReduce === 'none') return [];
+  const prof = vpProfile(bars, Math.max(0, i - lvnWindow), i - 1, vpNB, vaPct);
+  if (!prof) return [];
+  const lo = Math.min(stopLoss, takeProfit != null ? takeProfit : entryPrice);
+  const hi = Math.max(stopLoss, takeProfit != null ? takeProfit : entryPrice);
+  return prof.lvn.filter((x) => x >= lo && x <= hi);
+}
+
 // 计算一段 K 线的完整成交量分布剖面（"筹码位置地图"）：POC / 价值区 VA(vaPct) / HVN(高量节点) / LVN(低量真空带)。
 // 量按每根 K 线的 [low,high] 区间平摊到分箱，得到更真实的剖面形状（HVN=客观 S/R，LVN=加速真空带）。
 export function vpProfile(bars, from, to, NB = 80, vaPct = 0.7) {
@@ -323,6 +334,9 @@ export function runBacktestOnBars(bars, params) {
     vaPct = 0.7,     // 价值区占比
     vpNB = 80,       // VP 价格分箱数
     vpStopBuf = 0.3, // 止损相对近端 HVN 的缓冲(%)
+    lvnReduce = 'none', // 'none' | 'halve' | 'flatten'：价格进入 LVN 真空带时减仓/平仓触发器（VP 描述"危险地形"而非预测方向）
+    lvnWindow = 168, // LVN 剖面回看窗口（根）
+    lvnBandPct = 0.4, // 判定"进入 LVN"的价位容差(%)
   } = params || {};
 
   if (bars.length < 100) throw new Error('数据不足');
@@ -461,6 +475,32 @@ export function runBacktestOnBars(bars, params) {
         }
       }
 
+      // LVN 减仓触发器：价格进入 LVN 真空带（危险地形）→ 减半（halve）或平仓（flatten）。
+      // 只需 VP 描述"哪里危险"，不要求预测方向，符合 VP 描述性本质。减仓在 bar.close 结算，无前视。
+      if (lvnReduce !== 'none' && !t.lvnReduced && t.lvnZones.length) {
+        const band = t.entryPrice * (lvnBandPct / 100);
+        const inLVN = t.lvnZones.some((lv) => Math.abs(bar.close - lv) <= band);
+        if (inLVN) {
+          const initRisk = (t.equityAtEntry ?? equityVal) * (riskPct / 100);
+          const fullQty = (t.entryRisk || 0) > 0 ? initRisk / t.entryRisk : 0;
+          const frac = lvnReduce === 'flatten' ? 1 : 0.5;
+          const closeQty = fullQty * frac;
+          const pricePnlPC = t.side === 'long' ? (bar.close - t.entryPrice) : (t.entryPrice - bar.close);
+          const pnlPC = pricePnlPC * closeQty - (feeEnabled && closeQty > 0 ? (2 * feeRate + 2 * slip) * t.entryPrice * closeQty : 0);
+          t.realizedPnl += pnlPC;
+          equityVal += pnlPC;
+          equity.push({ time: bar.time, equity: equityVal });
+          t.lvnReduced = true;
+          if (lvnReduce === 'flatten' || closeQty >= fullQty - 1e-9) {
+            t.exitTime = bar.time; t.exitPrice = bar.close; t.exitReason = 'lvn'; t.pnl = t.realizedPnl; t.rMultiple = initRisk > 0 ? t.realizedPnl / initRisk : 0; t.exitIdx = i;
+            trades.push({ ...t });
+            openTrade = null;
+            continue;
+          }
+          t.lvnScale = 1 - frac;
+        }
+      }
+
       let exitPrice = null, exitReason = null;
       if (t.side === 'long') {
         if (bar.low <= t.stopLoss) { exitPrice = t.stopLoss; exitReason = 'stop'; }
@@ -475,18 +515,18 @@ export function runBacktestOnBars(bars, params) {
       }
       if (exitPrice != null) {
         const riskPerUnit = t.entryRisk || 0;
-        const pricePnl = t.side === 'long' ? (exitPrice - t.entryPrice) : (t.entryPrice - exitPrice);
-        const costR = (feeEnabled && riskPerUnit > 0) ? ((2 * feeRate + 2 * slip) * t.entryPrice) / riskPerUnit : 0;
-        const rMult = riskPerUnit > 0 ? pricePnl / riskPerUnit - costR : 0;
         const equityAtEntry = t.equityAtEntry ?? equityVal;
         const riskAmount = equityAtEntry * (riskPct / 100);
-        const qty = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
+        const fullQty = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
+        const qty = fullQty * (t.lvnScale ?? 1);
+        const pricePnl = t.side === 'long' ? (exitPrice - t.entryPrice) : (t.entryPrice - exitPrice);
         const pnlDollar = pricePnl * qty - (feeEnabled && qty > 0 ? (2 * feeRate + 2 * slip) * t.entryPrice * qty : 0);
+        const totalPnl = (t.realizedPnl || 0) + pnlDollar;
         t.exitTime = bar.time;
         t.exitPrice = exitPrice;
         t.exitReason = exitReason;
-        t.rMultiple = rMult;
-        t.pnl = pnlDollar;
+        t.rMultiple = riskAmount > 0 ? totalPnl / riskAmount : 0;
+        t.pnl = totalPnl;
         t.exitIdx = i;
         trades.push({ ...t });
         equityVal += pnlDollar;
@@ -532,7 +572,8 @@ export function runBacktestOnBars(bars, params) {
           if ((side === 'long' ? stopLoss < entryPrice : stopLoss > entryPrice) && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
             const risk = side === 'long' ? entryPrice - stopLoss : stopLoss - entryPrice;
             const takeProfit = tpMode === 'rMultiple' ? (side === 'long' ? entryPrice + risk * effTpR : entryPrice - risk * effTpR) : null;
-            openTrade = { side, entryTime: bar.time, entryPrice, entryIdx: i, stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
+            openTrade = { side, entryTime: bar.time, entryPrice, entryIdx: i, stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
+              lvnZones: lvnZonesFor(bars, i, entryPrice, stopLoss, takeProfit, lvnReduce, lvnWindow, vpNB, vaPct), lvnScale: 1, realizedPnl: 0, lvnReduced: false };
             lastEntryIdx = i;
             return true;
           }
@@ -600,7 +641,8 @@ export function runBacktestOnBars(bars, params) {
                 tp = hvnBelow.length ? hvnBelow[0] : entryPrice - risk * effTpR;
               }
               const takeProfit = tpMode === 'rMultiple' ? tp : null;
-              openTrade = { side, entryTime: bar.time, entryPrice, entryIdx: i, stopLoss: stop, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
+              openTrade = { side, entryTime: bar.time, entryPrice, entryIdx: i, stopLoss: stop, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
+                lvnZones: lvnZonesFor(bars, i, entryPrice, stopLoss, takeProfit, lvnReduce, lvnWindow, vpNB, vaPct), lvnScale: 1, realizedPnl: 0, lvnReduced: false };
               lastEntryIdx = i;
               return true;
             }
@@ -626,6 +668,7 @@ export function runBacktestOnBars(bars, params) {
               openTrade = {
                 side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
                 stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
+                lvnZones: lvnZonesFor(bars, i, bar.close, stopLoss, takeProfit, lvnReduce, lvnWindow, vpNB, vaPct), lvnScale: 1, realizedPnl: 0, lvnReduced: false,
               };
               lastEntryIdx = i;
               inPullbackLong = false;
@@ -648,6 +691,7 @@ export function runBacktestOnBars(bars, params) {
               openTrade = {
                 side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
                 stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
+                lvnZones: lvnZonesFor(bars, i, bar.close, stopLoss, takeProfit, lvnReduce, lvnWindow, vpNB, vaPct), lvnScale: 1, realizedPnl: 0, lvnReduced: false,
               };
               lastEntryIdx = i;
               inPullbackShort = false;
@@ -688,7 +732,7 @@ export function runBacktestOnBars(bars, params) {
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
 
   return {
-    params: { minBody, maxShadow, swingWin, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter, riskPct, rsiPeriod, rsiLongLo, rsiLongHi, rsiShortLo, rsiShortHi, volPeriod, volMult },
+    params: { minBody, maxShadow, swingWin, minConsec, emaFast, emaMid, emaSlow, stopMode, stopPct, tpR, tpMode, timeStop, side, signalMode, feeRate, slippageBps, atrMult, minStopPct, maxStopPct, emaSlopeBars, cooldownBars, use4hFilter, riskPct, rsiPeriod, rsiLongLo, rsiLongHi, rsiShortLo, rsiShortHi, volPeriod, volMult, vpWindow, vaPct, vpNB, vpStopBuf, lvnReduce, lvnWindow, lvnBandPct },
     bars: bars.length,
     trades: closed.map((t) => ({
       side: t.side,
