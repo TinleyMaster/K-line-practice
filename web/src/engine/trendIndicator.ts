@@ -143,6 +143,8 @@ registerIndicator({
     { key: 'emaFast', title: 'EMA21: ', type: 'line' },
     { key: 'emaMid', title: 'EMA55: ', type: 'line' },
     { key: 'emaSlow', title: 'EMA144: ', type: 'line' },
+    { key: 'midHigh', title: '摆动高: ', type: 'circle', attrs: () => ({ r: 3 }) },
+    { key: 'midLow', title: '摆动低: ', type: 'circle', attrs: () => ({ r: 3 }) },
   ],
   calc: (dataList, indicator) => {
     const params = indicator.calcParams as number[];
@@ -311,6 +313,10 @@ registerIndicator({
       { color: '#2962FF', size: 1.5 },
       { color: '#FFFFFF', size: 1.5 },
     ],
+    circles: [
+      { upColor: '#C9CDD4', downColor: '#C9CDD4', noChangeColor: '#C9CDD4' }, // 摆动高（中性灰白小圆点）
+      { upColor: '#C9CDD4', downColor: '#C9CDD4', noChangeColor: '#C9CDD4' }, // 摆动低（同一中性色，位置已区分高低）
+    ],
   },
 });
 
@@ -341,25 +347,7 @@ registerOverlay({
   },
 });
 
-// 多周期共振标记：1h 与 15m（独立周期）摆动高低点价格重合处画空心环，提示强 S/R。
-// 只用空心环（不用文字标签），避免标签压在 K 线上；含义由颜色区分（橙红=阻力 / 青=支撑）。
-registerOverlay({
-  name: 'confluenceMarker',
-  totalStep: 1,
-  createPointFigures: ({ coordinates, overlay }) => {
-    const c = coordinates[0];
-    const ext = (overlay.extendData || {}) as { kind?: 'high' | 'low' };
-    const isHigh = ext.kind === 'high';
-    const ring = isHigh ? '#FF7043' : '#26C6DA'; // 阻力橙红 / 支撑青
-    return [
-      {
-        type: 'circle',
-        attrs: { x: c.x, y: c.y, r: 9 },
-        styles: { style: 'stroke', color: ring, borderColor: ring, borderSize: 2 },
-      },
-    ];
-  },
-});
+// 多周期共振标记（confluenceMarker）已按需求取消：不再绘制空心环。
 
 /**
  * 趋势行情色块区间标记：在每段被识别出的趋势行情上，用半透明色块填出它的"价格区间"，

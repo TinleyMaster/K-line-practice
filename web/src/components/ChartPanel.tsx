@@ -1240,59 +1240,6 @@ export function ChartPanel({
     applyPaneHeights(chart, containerRef.current!, r.paneIds, r.weights);
   }, [indicators4h, indicators1h, period]);
 
-  // ---------- 多周期共振（MTF confluence）标记 ----------
-  // 仅 1h / 15m 启用：这两个周期都是独立存储的真实数据（4h 由 1h 派生，属于"假共振"故跳过）。
-  // base = 当前周期，ref = 另一个独立周期（1h↔15m），两者摆动高低点价格重合 ≤1% 处画空心环。
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    chart.removeOverlay({ groupId: 'confluence' });
-
-    const names = period === '4h' ? indicators4h : indicators1h;
-    if (!names.includes('TRENDSTRUCT')) return;
-    if (period === '4h') return; // 4h 派生，共振无意义
-
-    const base: '1h' | '15m' = period === '15m' ? '15m' : '1h';
-    const ref: '1h' | '15m' = period === '15m' ? '1h' : '15m';
-
-    let cancelled = false;
-    api
-      .klinesConfluence(symbol, market, base, ref, 0.01)
-      .then((r) => {
-        if (cancelled || !chartRef.current) return;
-        const overlays: Array<Record<string, unknown>> = [];
-        // 1h↔15m 同源，共振位偏多（属"确认"而非稀有强信号），只画靠近现价、且数量受限的，避免图上泛滥。
-        const CAP = 24;
-        const highs = r.confluentHighs.slice(-CAP);
-        const lows = r.confluentLows.slice(-CAP);
-        for (const h of highs)
-          overlays.push({
-            name: 'confluenceMarker',
-            groupId: 'confluence',
-            lock: true,
-            zLevel: 50,
-            points: [{ timestamp: h.time, value: h.price }],
-            extendData: { kind: 'high' },
-          });
-        for (const l of lows)
-          overlays.push({
-            name: 'confluenceMarker',
-            groupId: 'confluence',
-            lock: true,
-            zLevel: 50,
-            points: [{ timestamp: l.time, value: l.price }],
-            extendData: { kind: 'low' },
-          });
-        if (overlays.length) chart.createOverlay(overlays as never);
-      })
-      .catch(() => {
-        /* 共振接口暂不可用（如无 15m 数据的标的）时静默忽略 */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [symbol, market, period, indicators1h, indicators4h]);
-
   // ---------- 换标的 / 换周期 / 换起点 / 换市场 / cursor 首次就绪：重建 feed 并 init ----------
   useEffect(() => {
     const chart = chartRef.current;
