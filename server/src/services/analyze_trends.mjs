@@ -1,5 +1,8 @@
 // 趋势行情特征分析：从 MACD 锚定的摆动点出发，识别"趋势行情"（连续 HH+HL 的上涨段 / LH+LL 的下跌段），
 // 抽取每段的共同特征（起点 RSI、MACD 零轴位置、量能比、EMA 斜率、ATR%、回撤深度、时长、幅度），用于归纳趋势共性。
+// 额外把每段趋势的「高低点」(起点摆动点 / 终点摆动点) 与关键特征写入 trend_moves_record.json，方便后续人工提取共性、定制策略。
+import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { midPoints } from './backtestService.js';
 
 const url = 'http://127.0.0.1:8787/api/klines?symbol=BTCUSDT&market=perp&interval=1h&limit=5000';
@@ -68,7 +71,6 @@ function detectMoves(seq) {
       if (!cur && lastHigh && lastLow && s.price < lastHigh.price) {
         // 出现更低高且之前低点更低 → 启动下跌行情（起点取上一个高点）
         cur = { dir: 'down', startIdx: lastHigh.i, startPrice: lastHigh.price, endIdx: s.i, endPrice: s.price, legs: 1, ext: false };
-        out.push(cur);
       }
       lastHigh = s;
     } else {
@@ -82,7 +84,6 @@ function detectMoves(seq) {
       if (!cur && lastHigh && lastLow && s.price > lastLow.price) {
         // 出现更高低且之前高点更高 → 启动上涨行情（起点取上一个低点）
         cur = { dir: 'up', startIdx: lastLow.i, startPrice: lastLow.price, endIdx: s.i, endPrice: s.price, legs: 1, ext: false };
-        out.push(cur);
       }
       lastLow = s;
     }
@@ -95,6 +96,25 @@ const trendMoves = detectMoves(seq);
 console.log(`趋势行情段数=${trendMoves.length}（涨${trendMoves.filter(m=>m.dir==='up').length}/跌${trendMoves.filter(m=>m.dir==='down').length}）`);
 
 // ---- 抽取特征 ----
+const feats = trendMoves.map(features);
+
+// ---- 记录每段趋势的高低点 + 特征，写入 JSON 供后续分析 ----
+const records = trendMoves.map((m, i) => {
+  const s = m.startIdx, e = m.endIdx;
+  const sb = bars[s], eb = bars[e];
+  return {
+    dir: m.dir,
+    start: { ts: new Date(sb.time).toISOString(), low: sb.low, high: sb.high, close: sb.close, price: m.startPrice },
+    end: { ts: new Date(eb.time).toISOString(), low: eb.low, high: eb.high, close: eb.close, price: m.endPrice },
+    legs: m.legs,
+    durationBars: e - s,
+    ...feats[i],
+  };
+});
+const outPath = fileURLToPath(new URL('./trend_moves_record.json', import.meta.url));
+writeFileSync(outPath, JSON.stringify(records, null, 2));
+console.log(`已记录 ${records.length} 段趋势的高低点 → ${outPath}`);
+
 function features(m) {
   const s = m.startIdx, e = m.endIdx;
   const dir = m.dir;
@@ -117,7 +137,6 @@ function features(m) {
     legs: m.legs,
   };
 }
-const feats = trendMoves.map(features);
 function summarize(rows, label) {
   if (!rows.length) { console.log(`\n[${label}] 无样本`); return; }
   const avg = (f, k) => rows.reduce((a, r) => a + (r[k] ?? 0), 0) / rows.length;

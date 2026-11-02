@@ -143,8 +143,6 @@ registerIndicator({
     { key: 'emaFast', title: 'EMA21: ', type: 'line' },
     { key: 'emaMid', title: 'EMA55: ', type: 'line' },
     { key: 'emaSlow', title: 'EMA144: ', type: 'line' },
-    { key: 'midHigh', title: '中期高点: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
-    { key: 'midLow', title: '中期低点: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
   ],
   calc: (dataList, indicator) => {
     const params = indicator.calcParams as number[];
@@ -312,10 +310,6 @@ registerIndicator({
       { color: '#F6465D', size: 1.5 },
       { color: '#2962FF', size: 1.5 },
       { color: '#FFFFFF', size: 1.5 },
-    ],
-    circles: [
-      { upColor: '#FFA726', downColor: '#FFA726', noChangeColor: '#FFA726' }, // midHigh 中期高点（橙）
-      { upColor: '#42A5F5', downColor: '#42A5F5', noChangeColor: '#42A5F5' }, // midLow 中期低点（蓝）
     ],
   },
 });
