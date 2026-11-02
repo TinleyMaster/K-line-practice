@@ -347,6 +347,7 @@ export function runBacktestOnBars(bars, params) {
   for (let i = 1; i < bars.length; i++) {
     const bar = bars[i];
     const tf = trendFlags[i];
+    const isTrend = signalMode === 'trend';
 
     if (tf.bull) consecBull++; else consecBull = 0;
     if (tf.bear) consecBear++; else consecBear = 0;
@@ -404,10 +405,12 @@ export function runBacktestOnBars(bars, params) {
       if (t.side === 'long') {
         if (bar.low <= t.stopLoss) { exitPrice = t.stopLoss; exitReason = 'stop'; }
         else if (tpMode === 'rMultiple' && t.takeProfit != null && bar.high >= t.takeProfit) { exitPrice = t.takeProfit; exitReason = 'target'; }
+        else if (tpMode === 'trendend' && structHLdn[i]) { exitPrice = bar.close; exitReason = 'trendend'; }
         else if (timeStop != null && barsHeld >= timeStop) { exitPrice = bar.close; exitReason = 'time'; }
       } else {
         if (bar.high >= t.stopLoss) { exitPrice = t.stopLoss; exitReason = 'stop'; }
         else if (tpMode === 'rMultiple' && t.takeProfit != null && bar.low <= t.takeProfit) { exitPrice = t.takeProfit; exitReason = 'target'; }
+        else if (tpMode === 'trendend' && structHLup[i]) { exitPrice = bar.close; exitReason = 'trendend'; }
         else if (timeStop != null && barsHeld >= timeStop) { exitPrice = bar.close; exitReason = 'time'; }
       }
       if (exitPrice != null) {
@@ -440,62 +443,95 @@ export function runBacktestOnBars(bars, params) {
       // 趋势由 EMA 排列 + 连续趋势K 确立；回调 = 趋势中出现非趋势K 的回踩；
       // 当回调中出现趋势K 反转向上、且（strict）未跌破前低结构时，入场做多。
       const isStruct = signalMode === 'structure';
-      // 结构模式：止盈至少 3R（用户要求「至少 3R 的止盈策略」）
       const effTpR = isStruct ? Math.max(tpR, 3) : tpR;
-      const rsiOkLong = !isStruct || (rsi[i] != null && rsi[i] >= rsiLongLo && rsi[i] <= rsiLongHi);
-      const rsiOkShort = !isStruct || (rsi[i] != null && rsi[i] >= rsiShortLo && rsi[i] <= rsiShortHi);
-      const volOk = !isStruct || (volSma[i] != null && volSma[i] > 0 && bar.volume > volSma[i] * volMult);
+      const rsiGate = isStruct || isTrend;
+      const rsiOkLong = !rsiGate || (rsi[i] != null && rsi[i] >= rsiLongLo && rsi[i] <= rsiLongHi);
+      const rsiOkShort = !rsiGate || (rsi[i] != null && rsi[i] >= rsiShortLo && rsi[i] <= rsiShortHi);
+      const volGate = isStruct || isTrend;
+      const volOk = !volGate || (volSma[i] != null && volSma[i] > 0 && bar.volume > volSma[i] * volMult);
 
-      if (wantLong && emaBull && trendActiveLong && inPullbackLong && tf.bull && rsiOkLong && volOk) {
-        const structOk = signalMode !== 'strict' || (defenseLow[i] != null && pullbackLowLong != null && pullbackLowLong >= defenseLow[i] * 0.999);
-        const structTrendOk = !isStruct || structHLup[i];
-        if (structOk && structTrendOk) {
+      if (isTrend) {
+        // 趋势起点策略：在 MACD 锚定的摆动低点出现「更高低」(HL) → 上涨结构确认即入场（买在主要低点之后）；
+        // 下跌反之（更低高 LH）。配合 RSI 极值 + 量能放大。不要求 EMA 多头排列——
+        // 趋势起点本就早于 EMA 确认（实测起点 EMA 斜率仍指向旧方向）。
+        // 止损用 ATR（紧贴入场，不用遥远的 MACD 极值低点）保证风险可控；可叠加追踪止损骑趋势。
+        if (wantLong && structHLup[i] && rsiOkLong && volOk) {
           let stopLoss;
-          if (stopMode === 'defense') stopLoss = Math.min(defenseLow[i] ?? bar.low, bar.low);
-          else if (stopMode === 'atr') stopLoss = bar.close - (atr[i] ?? bar.close * 0.02) * atrMult;
-          else stopLoss = bar.close * (1 - stopPct / 100);
+          if (stopMode === 'pct') stopLoss = bar.close * (1 - stopPct / 100);
+          else if (stopMode === 'defense') stopLoss = Math.min(defenseLow[i] ?? bar.low, bar.low);
+          else stopLoss = bar.close - (atr[i] ?? bar.close * 0.02) * atrMult;
           const stopDistPct = stopLoss < bar.close ? (bar.close - stopLoss) / bar.close * 100 : 999;
           if (stopLoss < bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
             const risk = bar.close - stopLoss;
             const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * effTpR : null;
-            openTrade = {
-              side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-              stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
-            };
+            openTrade = { side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i, stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
             lastEntryIdx = i;
-            inPullbackLong = false;
-            pullbackLowLong = null;
           }
-        }
-      } else if (wantShort && emaBear && trendActiveShort && inPullbackShort && tf.bear && rsiOkShort && volOk) {
-        const structOk = signalMode !== 'strict' || (defenseHigh[i] != null && pullbackHighShort != null && pullbackHighShort <= defenseHigh[i] * 1.001);
-        const structTrendOk = !isStruct || structHLdn[i];
-        if (structOk && structTrendOk) {
+        } else if (wantShort && structHLdn[i] && rsiOkShort && volOk) {
           let stopLoss;
-          if (stopMode === 'defense') stopLoss = Math.max(defenseHigh[i] ?? bar.high, bar.high);
-          else if (stopMode === 'atr') stopLoss = bar.close + (atr[i] ?? bar.close * 0.02) * atrMult;
-          else stopLoss = bar.close * (1 + stopPct / 100);
+          if (stopMode === 'pct') stopLoss = bar.close * (1 + stopPct / 100);
+          else if (stopMode === 'defense') stopLoss = Math.max(defenseHigh[i] ?? bar.high, bar.high);
+          else stopLoss = bar.close + (atr[i] ?? bar.close * 0.02) * atrMult;
           const stopDistPct = stopLoss > bar.close ? (stopLoss - bar.close) / bar.close * 100 : 999;
           if (stopLoss > bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
             const risk = stopLoss - bar.close;
             const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * effTpR : null;
-            openTrade = {
-              side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
-              stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
-            };
+            openTrade = { side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i, stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
             lastEntryIdx = i;
-            inPullbackShort = false;
-            pullbackHighShort = null;
           }
         }
-      }
+      } else {
+        if (wantLong && emaBull && trendActiveLong && inPullbackLong && tf.bull && rsiOkLong && volOk) {
+          const structOk = signalMode !== 'strict' || (defenseLow[i] != null && pullbackLowLong != null && pullbackLowLong >= defenseLow[i] * 0.999);
+          const structTrendOk = !isStruct || structHLup[i];
+          if (structOk && structTrendOk) {
+            let stopLoss;
+            if (stopMode === 'defense') stopLoss = Math.min(defenseLow[i] ?? bar.low, bar.low);
+            else if (stopMode === 'atr') stopLoss = bar.close - (atr[i] ?? bar.close * 0.02) * atrMult;
+            else stopLoss = bar.close * (1 - stopPct / 100);
+            const stopDistPct = stopLoss < bar.close ? (bar.close - stopLoss) / bar.close * 100 : 999;
+            if (stopLoss < bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
+              const risk = bar.close - stopLoss;
+              const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * effTpR : null;
+              openTrade = {
+                side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
+                stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
+              };
+              lastEntryIdx = i;
+              inPullbackLong = false;
+              pullbackLowLong = null;
+            }
+          }
+        } else if (wantShort && emaBear && trendActiveShort && inPullbackShort && tf.bear && rsiOkShort && volOk) {
+          const structOk = signalMode !== 'strict' || (defenseHigh[i] != null && pullbackHighShort != null && pullbackHighShort <= defenseHigh[i] * 1.001);
+          const structTrendOk = !isStruct || structHLdn[i];
+          if (structOk && structTrendOk) {
+            let stopLoss;
+            if (stopMode === 'defense') stopLoss = Math.max(defenseHigh[i] ?? bar.high, bar.high);
+            else if (stopMode === 'atr') stopLoss = bar.close + (atr[i] ?? bar.close * 0.02) * atrMult;
+            else stopLoss = bar.close * (1 + stopPct / 100);
+            const stopDistPct = stopLoss > bar.close ? (stopLoss - bar.close) / bar.close * 100 : 999;
+            if (stopLoss > bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
+              const risk = stopLoss - bar.close;
+              const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * effTpR : null;
+              openTrade = {
+                side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i,
+                stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal,
+              };
+              lastEntryIdx = i;
+              inPullbackShort = false;
+              pullbackHighShort = null;
+            }
+          }
+        }
 
-      // 回调结构破位（跌破前低 / 涨破前高）→ 取消本次回调，避免逆结构入场
-      if (inPullbackLong && defenseLow[i] != null && pullbackLowLong != null && pullbackLowLong < defenseLow[i]) {
-        inPullbackLong = false; pullbackLowLong = null; trendActiveLong = false;
-      }
-      if (inPullbackShort && defenseHigh[i] != null && pullbackHighShort != null && pullbackHighShort > defenseHigh[i]) {
-        inPullbackShort = false; pullbackHighShort = null; trendActiveShort = false;
+        // 回调结构破位（跌破前低 / 涨破前高）→ 取消本次回调，避免逆结构入场
+        if (inPullbackLong && defenseLow[i] != null && pullbackLowLong != null && pullbackLowLong < defenseLow[i]) {
+          inPullbackLong = false; pullbackLowLong = null; trendActiveLong = false;
+        }
+        if (inPullbackShort && defenseHigh[i] != null && pullbackHighShort != null && pullbackHighShort > defenseHigh[i]) {
+          inPullbackShort = false; pullbackHighShort = null; trendActiveShort = false;
+        }
       }
     }
   }

@@ -143,17 +143,12 @@ registerIndicator({
     { key: 'emaFast', title: 'EMA21: ', type: 'line' },
     { key: 'emaMid', title: 'EMA55: ', type: 'line' },
     { key: 'emaSlow', title: 'EMA144: ', type: 'line' },
-    { key: 'defense', title: '防守位: ', type: 'line' },
-    { key: 'trendBull', title: '多头趋势K: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
-    { key: 'trendBear', title: '空头趋势K: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
     { key: 'midHigh', title: '中期高点: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
     { key: 'midLow', title: '中期低点: ', type: 'circle', attrs: () => ({ r: 3.5 }) },
   ],
   calc: (dataList, indicator) => {
     const params = indicator.calcParams as number[];
-    const minBody = Number(params?.[0] ?? 40);
-    const maxShadow = Number(params?.[1] ?? 15);
-    // 摆动高低点改为"锚定 MACD 交叉"：高位 = 零轴上方死叉前一段的极高；低位 = 零轴下方金叉前一段的极低。
+    // 摆动高低点锚定 MACD 交叉：高位 = 零轴上方死叉前一段的极高；低位 = 零轴下方金叉前一段的极低。
     // 这样只保留由 MACD 结构确认的趋势拐点，避免满屏高低点。
     const mFast = Math.max(1, Number(params?.[2] ?? 12));
     const mSlow = Math.max(1, Number(params?.[3] ?? 26));
@@ -243,30 +238,13 @@ registerIndicator({
     let lastMidLow: number | null = null;
 
     return dataList.map((k, i) => {
-      const range = k.high - k.low;
-      const body = Math.abs(k.close - k.open);
-      const bodyPct = range > 0 ? (body / range) * 100 : 0;
-      const shadowPct = range > 0 ? ((range - body) / range) * 100 : 0;
-
-      let trendBull: number | undefined;
-      let trendBear: number | undefined;
-      if (k.close > k.open && bodyPct >= minBody && shadowPct <= maxShadow) {
-        trendBull = k.close;
-      }
-      if (k.close < k.open && bodyPct >= minBody && shadowPct <= maxShadow) {
-        trendBear = k.close;
-      }
+      const close = k.close;
 
       const midHigh = swingHigh[i] ?? undefined;
       const midLow = swingLow[i] ?? undefined;
       if (midHigh !== undefined) lastMidHigh = midHigh;
       if (midLow !== undefined) lastMidLow = midLow;
 
-      let defense: number | undefined;
-      if (k.close < k.open && lastMidHigh !== null) defense = lastMidHigh;
-      else if (k.close > k.open && lastMidLow !== null) defense = lastMidLow;
-
-      const close = k.close;
       // fast EMA
       if (i < fastP - 1) {
         closeSumFast += close;
@@ -299,9 +277,6 @@ registerIndicator({
         emaFast: i >= fastP - 1 ? emaFastVal : undefined,
         emaMid: i >= midP - 1 ? emaMidVal : undefined,
         emaSlow: i >= slowP - 1 ? emaSlowVal : undefined,
-        defense,
-        trendBull,
-        trendBear,
         midHigh,
         midLow,
         lastMidHigh,
@@ -322,15 +297,11 @@ registerIndicator({
       return { name: '趋势结构', calcParamsText: '', features: [], legends: [] };
     }
     const cur = result[idx];
-    const trend = cur.trendBull != null ? '多' : cur.trendBear != null ? '空' : '无';
-    const trendColor = cur.trendBull != null ? '#0ECB81' : cur.trendBear != null ? '#F6465D' : '#848E9C';
     return {
       name: '趋势结构',
       calcParamsText: '',
       features: [],
       legends: [
-        { title: '防守位', value: fmt(cur.defense) },
-        { title: '趋势K', value: { text: trend, color: trendColor } },
         { title: '近期高点', value: fmt(cur.lastMidHigh) },
         { title: '近期低点', value: fmt(cur.lastMidLow) },
       ],
@@ -341,11 +312,8 @@ registerIndicator({
       { color: '#F6465D', size: 1.5 },
       { color: '#2962FF', size: 1.5 },
       { color: '#FFFFFF', size: 1.5 },
-      { color: '#9C27B0', size: 1.5, style: 'dashed' },
     ],
     circles: [
-      { upColor: '#0ECB81', downColor: '#0ECB81', noChangeColor: '#0ECB81' }, // trendBull 多头趋势K（绿）
-      { upColor: '#F6465D', downColor: '#F6465D', noChangeColor: '#F6465D' }, // trendBear 空头趋势K（红）
       { upColor: '#FFA726', downColor: '#FFA726', noChangeColor: '#FFA726' }, // midHigh 中期高点（橙）
       { upColor: '#42A5F5', downColor: '#42A5F5', noChangeColor: '#42A5F5' }, // midLow 中期低点（蓝）
     ],

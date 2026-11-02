@@ -621,13 +621,9 @@ function updateOhlcHeader(chart: Chart | null, el: HTMLElement | null, indexRef:
       else if (structure === 'diverge') { regime = '震荡'; rcol = '#FCD535'; }
       else { regime = '分歧'; rcol = '#FFA726'; }
 
-      const trend = t.trendBull != null ? '多' : t.trendBear != null ? '空' : '—';
-      const tcol = t.trendBull != null ? '#0ECB81' : t.trendBear != null ? '#F6465D' : '#848E9C';
       html +=
         `<span class="oh-sep"></span>` +
         `<span class="oh-h">趋势 <b style="color:${rcol}">${regime}</b></span>` +
-        `<span class="oh-h">防守 <b>${t.defense != null ? fmt(t.defense) : '—'}</b></span>` +
-        `<span class="oh-h">趋势K <b style="color:${tcol}">${trend}</b></span>` +
         `<span class="oh-h">摆动高 <b>${t.lastMidHigh != null ? fmt(t.lastMidHigh) : '—'}</b></span>` +
         `<span class="oh-h">摆动低 <b>${t.lastMidLow != null ? fmt(t.lastMidLow) : '—'}</b></span>`;
       }

@@ -202,7 +202,7 @@ export function BacktestView({
         <label>冷却(根)<input className="input" type="number" value={cooldownBars} onChange={(e) => setCooldownBars(Number(e.target.value))} /></label>
         <label>4h过滤<input type="checkbox" checked={use4hFilter} onChange={(e) => setUse4hFilter(e.target.checked)} /></label>
         <label>方向<select className="input" value={side} onChange={(e) => setSide(e.target.value)}><option value="both">双向</option><option value="long">仅多</option><option value="short">仅空</option></select></label>
-        <label>信号模式<select className="input" value={signalMode} onChange={(e) => setSignalMode(e.target.value)}><option value="structure">结构(趋势+量+RSI)≥3R</option><option value="loose">回调不卡结构</option><option value="strict">回调+结构(更高低/更低高)</option></select></label>
+        <label>信号模式<select className="input" value={signalMode} onChange={(e) => setSignalMode(e.target.value)}><option value="structure">结构(趋势+量+RSI)≥3R</option><option value="loose">回调不卡结构</option><option value="strict">回调+结构(更高低/更低高)</option><option value="trend">趋势起点(RSI极值+MACD侧+量能)</option></select></label>
         <label>追踪止损(R)<input className="input" type="number" step="0.5" value={trailR} onChange={(e) => setTrailR(Number(e.target.value))} title="盈利达 trailR·R 后，止损随价格极值回撤 trailR·R 跟进；0=关闭（结构模式默认0以保证≥3R止盈）" /></label>
         <label title="RSI 周期">RSI周期<input className="input" type="number" value={rsiPeriod} onChange={(e) => setRsiPeriod(Number(e.target.value))} /></label>
         <label title="多头 RSI 区间">多RSI<input className="input" type="text" value={`${rsiLongLo}-${rsiLongHi}`} onChange={(e) => { const [a, b] = e.target.value.split('-').map((x) => Number(x)); if (!isNaN(a)) setRsiLongLo(a); if (!isNaN(b)) setRsiLongHi(b); }} placeholder="35-85" /></label>
