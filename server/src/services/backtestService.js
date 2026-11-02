@@ -294,6 +294,30 @@ export function vpProfile(bars, from, to, NB = 80, vaPct = 0.7) {
   return { pocPrice, vaLow, vaHigh, hvn, lvn };
 }
 
+// 实时"仓位建议"（把回测结论变成看盘可执行动作）：基于最新一根 K 线前的 VP 剖面（默认 336/14d），
+// 判断当前价是否处于 LVN 真空带，并给出 defense 止损位（最近 HVN 之外）。与已验证的 defense+halve 策略挂钩。
+export function vpPositionAdvice(bars, opts = {}) {
+  const { idx = bars.length - 1, vpWindow = 336, vaPct = 0.7, vpNB = 80, vpStopBuf = 0.3, lvnBandPct = 0.4 } = opts;
+  const prof = vpProfile(bars, Math.max(0, idx - vpWindow), idx - 1, vpNB, vaPct);
+  if (!prof) return null;
+  const price = bars[idx].close;
+  const band = price * (lvnBandPct / 100);
+  const near = prof.lvn.filter((x) => Math.abs(x - price) <= band);
+  const inLVN = near.length > 0;
+  const hvnBelow = prof.hvn.filter((x) => x < price).sort((a, b) => b - a);
+  const hvnAbove = prof.hvn.filter((x) => x > price).sort((a, b) => a - b);
+  const stopLong = hvnBelow.length ? hvnBelow[0] * (1 - vpStopBuf / 100) : prof.vaLow * (1 - vpStopBuf / 100);
+  const stopShort = hvnAbove.length ? hvnAbove[0] * (1 + vpStopBuf / 100) : prof.vaHigh * (1 + vpStopBuf / 100);
+  return {
+    price, inLVN,
+    lvnLow: near.length ? Math.min(...near) : null,
+    lvnHigh: near.length ? Math.max(...near) : null,
+    pocPrice: prof.pocPrice, vaLow: prof.vaLow, vaHigh: prof.vaHigh,
+    hvn: prof.hvn, stopLong, stopShort, vpWindow,
+    action: inLVN ? 'halve' : 'normal',
+  };
+}
+
 export function runBacktestOnBars(bars, params) {
   const {
     minBody = 10,
