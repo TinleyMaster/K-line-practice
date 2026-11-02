@@ -231,6 +231,41 @@ export async function loadBars(symbol, market, limit, offset, since, until) {
   }));
 }
 
+// 计算一段 K 线的完整成交量分布剖面（"筹码位置地图"）：POC / 价值区 VA(vaPct) / HVN(高量节点) / LVN(低量真空带)。
+// 量按每根 K 线的 [low,high] 区间平摊到分箱，得到更真实的剖面形状（HVN=客观 S/R，LVN=加速真空带）。
+export function vpProfile(bars, from, to, NB = 80, vaPct = 0.7) {
+  if (to - from < 20) return null;
+  let pMin = Infinity, pMax = -Infinity;
+  for (let k = from; k <= to; k++) { pMin = Math.min(pMin, bars[k].low); pMax = Math.max(pMax, bars[k].high); }
+  if (!(pMax > pMin)) return null;
+  const binSize = (pMax - pMin) / NB;
+  const bins = new Array(NB).fill(0);
+  for (let k = from; k <= to; k++) {
+    const lo = bars[k].low, hi = bars[k].high, v = bars[k].volume || 0;
+    let b0 = Math.floor((lo - pMin) / binSize), b1 = Math.floor((hi - pMin) / binSize);
+    if (b0 < 0) b0 = 0; if (b1 >= NB) b1 = NB - 1; if (b1 < b0) b1 = b0;
+    const cnt = b1 - b0 + 1;
+    for (let t = b0; t <= b1; t++) bins[t] += v / cnt;
+  }
+  const total = bins.reduce((s, x) => s + x, 0);
+  if (total <= 0) return null;
+  let pocI = 0;
+  for (let t = 1; t < NB; t++) if (bins[t] > bins[pocI]) pocI = t;
+  const pocPrice = pMin + (pocI + 0.5) * binSize;
+  const order = [...Array(NB).keys()].sort((x, y) => bins[y] - bins[x]);
+  const set = new Set([pocI]); let cum = bins[pocI];
+  for (const t of order) { if (t === pocI) continue; if (cum / total >= vaPct) break; set.add(t); cum += bins[t]; }
+  let loT = pocI, hiT = pocI;
+  for (const t of set) { loT = Math.min(loT, t); hiT = Math.max(hiT, t); }
+  const vaLow = pMin + loT * binSize, vaHigh = pMin + (hiT + 1) * binSize;
+  const avg = total / NB;
+  const hvn = [];
+  for (let t = 1; t < NB - 1; t++) if (bins[t] >= 1.5 * avg && bins[t] >= bins[t - 1] && bins[t] >= bins[t + 1]) hvn.push(pMin + (t + 0.5) * binSize);
+  const lvn = [];
+  for (let t = 0; t < NB; t++) if (bins[t] <= 0.4 * avg) lvn.push(pMin + (t + 0.5) * binSize);
+  return { pocPrice, vaLow, vaHigh, hvn, lvn };
+}
+
 export function runBacktestOnBars(bars, params) {
   const {
     minBody = 10,
@@ -267,6 +302,10 @@ export function runBacktestOnBars(bars, params) {
     volPeriod = 20,
     volMult = 1.5,
     trendEntry = 'close', // 'close' = 信号确认根收盘入场; 'swing' = 趋势起点摆动点本身(那根 low/high)入场，吃满整段
+    vpWindow = 150,   // VP 剖面回看窗口（根）
+    vaPct = 0.7,     // 价值区占比
+    vpNB = 80,       // VP 价格分箱数
+    vpStopBuf = 0.3, // 止损相对近端 HVN 的缓冲(%)
   } = params || {};
 
   if (bars.length < 100) throw new Error('数据不足');
@@ -351,6 +390,7 @@ export function runBacktestOnBars(bars, params) {
     const bar = bars[i];
     const tf = trendFlags[i];
     const isTrend = signalMode === 'trend';
+    const isVp = signalMode === 'vp';
 
     if (tf.bull) consecBull++; else consecBull = 0;
     if (tf.bear) consecBear++; else consecBear = 0;
@@ -506,6 +546,50 @@ export function runBacktestOnBars(bars, params) {
               openTradeAt('short', bar.close);
             }
           }
+        }
+      } else if (isVp) {
+        // VP 突破顺势：价格从 VA 外放量突破 VA 上沿(多)/下沿(空)，且 POC 同步偏移确认资金重心 → 顺势入场；
+        // 止损放近端 HVN 之外（跌破 HVN=筹码被击穿，该跑）；止盈看对侧最近 HVN（LVN 口/下一阻力）。
+        const a = Math.max(0, i - vpWindow);
+        const prof = vpProfile(bars, a, i - 1, vpNB, vaPct); // 用已闭合的历史窗口，无前视
+        if (prof) {
+          const mid = (prof.vaLow + prof.vaHigh) / 2;
+          const breakUp = bar.close > prof.vaHigh;
+          const breakDn = bar.close < prof.vaLow;
+          const pocBull = prof.pocPrice >= mid;  // POC 在 VA 上半 = 资金重心偏上
+          const pocBear = prof.pocPrice <= mid;  // POC 在 VA 下半 = 资金重心偏下
+          const vOk = volSma[i - 1] != null && volSma[i - 1] > 0 && bar.volume > volSma[i - 1] * volMult;
+          const openVp = (side, entryPrice) => {
+            let lvl, stop;
+            if (side === 'long') {
+              const hvnBelow = prof.hvn.filter((x) => x < entryPrice).sort((p, q) => q - p);
+              lvl = hvnBelow.length ? hvnBelow[0] : prof.vaLow;
+              stop = lvl * (1 - vpStopBuf / 100);
+            } else {
+              const hvnAbove = prof.hvn.filter((x) => x > entryPrice).sort((p, q) => p - q);
+              lvl = hvnAbove.length ? hvnAbove[0] : prof.vaHigh;
+              stop = lvl * (1 + vpStopBuf / 100);
+            }
+            const stopDistPct = side === 'long' ? (entryPrice - stop) / entryPrice * 100 : (stop - entryPrice) / entryPrice * 100;
+            if ((side === 'long' ? stop < entryPrice : stop > entryPrice) && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
+              const risk = side === 'long' ? entryPrice - stop : stop - entryPrice;
+              let tp;
+              if (side === 'long') {
+                const hvnAbove = prof.hvn.filter((x) => x > entryPrice).sort((p, q) => p - q);
+                tp = hvnAbove.length ? hvnAbove[0] : entryPrice + risk * effTpR;
+              } else {
+                const hvnBelow = prof.hvn.filter((x) => x < entryPrice).sort((p, q) => q - p);
+                tp = hvnBelow.length ? hvnBelow[0] : entryPrice - risk * effTpR;
+              }
+              const takeProfit = tpMode === 'rMultiple' ? tp : null;
+              openTrade = { side, entryTime: bar.time, entryPrice, entryIdx: i, stopLoss: stop, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
+              lastEntryIdx = i;
+              return true;
+            }
+            return false;
+          };
+          if (wantLong && breakUp && pocBull && vOk) openVp('long', bar.close);
+          else if (wantShort && breakDn && pocBear && vOk) openVp('short', bar.close);
         }
       } else {
         if (wantLong && emaBull && trendActiveLong && inPullbackLong && tf.bull && rsiOkLong && volOk) {
