@@ -266,6 +266,7 @@ export function runBacktestOnBars(bars, params) {
     rsiShortHi = 55,
     volPeriod = 20,
     volMult = 1.5,
+    trendEntry = 'close', // 'close' = 信号确认根收盘入场; 'swing' = 趋势起点摆动点本身(那根 low/high)入场，吃满整段
   } = params || {};
 
   if (bars.length < 100) throw new Error('数据不足');
@@ -338,6 +339,8 @@ export function runBacktestOnBars(bars, params) {
   let pullbackLowLong = null, pullbackHighShort = null;
   let trendActiveLong = false, trendActiveShort = false;
   let lastEntryIdx = -Infinity;
+  let prevHLup = false, prevHLdn = false; // 趋势结构信号的「上升沿」检测（仅在摆动点那一根触发）
+  let pendingOrder = null; // 趋势起点'swing'模式：信号收盘后挂限价单，未来根回踩到摆动低/高才成交（无前视）
 
   const equity = [{ time: bars[0].time, equity: 10000 }];
   let equityVal = 10000;
@@ -451,33 +454,57 @@ export function runBacktestOnBars(bars, params) {
       const volOk = !volGate || (volSma[i] != null && volSma[i] > 0 && bar.volume > volSma[i] * volMult);
 
       if (isTrend) {
-        // 趋势起点策略：在 MACD 锚定的摆动低点出现「更高低」(HL) → 上涨结构确认即入场（买在主要低点之后）；
-        // 下跌反之（更低高 LH）。配合 RSI 极值 + 量能放大。不要求 EMA 多头排列——
-        // 趋势起点本就早于 EMA 确认（实测起点 EMA 斜率仍指向旧方向）。
-        // 止损用 ATR（紧贴入场，不用遥远的 MACD 极值低点）保证风险可控；可叠加追踪止损骑趋势。
-        if (wantLong && structHLup[i] && rsiOkLong && volOk) {
+        // 趋势起点策略：MACD 锚定摆动点出现「更高低」(HL) → 上涨结构确认即入场；下跌反之（更低高 LH）。
+        // 配合 RSI 极值 + 量能放大。不在 EMA 多头排列要求——趋势起点本就早于 EMA 确认。
+        // trendEntry='close'：信号收盘确认根以收盘即时入场（入场偏晚）。
+        // trendEntry='swing'：信号收盘确认后挂「限价单」于摆动低/高，未来根回踩到该价才成交——
+        //   这样既吃到底部、又不存在前视（信号在收盘才知，挂单只能在未来成交）。
+        const edgeUp = structHLup[i] && !prevHLup;
+        const edgeDn = structHLdn[i] && !prevHLdn;
+        const longSig = trendEntry === 'swing' ? edgeUp : structHLup[i];
+        const shortSig = trendEntry === 'swing' ? edgeDn : structHLdn[i];
+        const limitBars = 30;
+
+        const openTradeAt = (side, entryPrice) => {
           let stopLoss;
-          if (stopMode === 'pct') stopLoss = bar.close * (1 - stopPct / 100);
-          else if (stopMode === 'defense') stopLoss = Math.min(defenseLow[i] ?? bar.low, bar.low);
-          else stopLoss = bar.close - (atr[i] ?? bar.close * 0.02) * atrMult;
-          const stopDistPct = stopLoss < bar.close ? (bar.close - stopLoss) / bar.close * 100 : 999;
-          if (stopLoss < bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
-            const risk = bar.close - stopLoss;
-            const takeProfit = tpMode === 'rMultiple' ? bar.close + risk * effTpR : null;
-            openTrade = { side: 'long', entryTime: bar.time, entryPrice: bar.close, entryIdx: i, stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
+          if (stopMode === 'pct') stopLoss = side === 'long' ? entryPrice * (1 - stopPct / 100) : entryPrice * (1 + stopPct / 100);
+          else if (stopMode === 'defense') stopLoss = side === 'long' ? Math.min(defenseLow[i] ?? bar.low, entryPrice) : Math.max(defenseHigh[i] ?? bar.high, entryPrice);
+          else stopLoss = side === 'long' ? entryPrice - (atr[i] ?? entryPrice * 0.02) * atrMult : entryPrice + (atr[i] ?? entryPrice * 0.02) * atrMult;
+          const stopDistPct = side === 'long' ? (entryPrice - stopLoss) / entryPrice * 100 : (stopLoss - entryPrice) / entryPrice * 100;
+          if ((side === 'long' ? stopLoss < entryPrice : stopLoss > entryPrice) && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
+            const risk = side === 'long' ? entryPrice - stopLoss : stopLoss - entryPrice;
+            const takeProfit = tpMode === 'rMultiple' ? (side === 'long' ? entryPrice + risk * effTpR : entryPrice - risk * effTpR) : null;
+            openTrade = { side, entryTime: bar.time, entryPrice, entryIdx: i, stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
             lastEntryIdx = i;
+            return true;
           }
-        } else if (wantShort && structHLdn[i] && rsiOkShort && volOk) {
-          let stopLoss;
-          if (stopMode === 'pct') stopLoss = bar.close * (1 + stopPct / 100);
-          else if (stopMode === 'defense') stopLoss = Math.max(defenseHigh[i] ?? bar.high, bar.high);
-          else stopLoss = bar.close + (atr[i] ?? bar.close * 0.02) * atrMult;
-          const stopDistPct = stopLoss > bar.close ? (stopLoss - bar.close) / bar.close * 100 : 999;
-          if (stopLoss > bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
-            const risk = stopLoss - bar.close;
-            const takeProfit = tpMode === 'rMultiple' ? bar.close - risk * effTpR : null;
-            openTrade = { side: 'short', entryTime: bar.time, entryPrice: bar.close, entryIdx: i, stopLoss, takeProfit, tpR: effTpR, entryRisk: risk, equityAtEntry: equityVal };
-            lastEntryIdx = i;
+          return false;
+        };
+
+        if (pendingOrder && !openTrade) {
+          const po = pendingOrder;
+          const filled = po.side === 'long' ? (bar.low <= po.price) : (bar.high >= po.price);
+          if (filled) {
+            openTradeAt(po.side, po.price);
+            pendingOrder = null;
+          } else if (i - po.entryIdx > limitBars) {
+            pendingOrder = null; // 限价单超时未成交，撤单
+          }
+        } else if (!openTrade && !pendingOrder) {
+          if (wantLong && longSig && rsiOkLong && volOk) {
+            if (trendEntry === 'swing') {
+              const price = Math.min(bar.low, mp.lows[i] != null ? mp.lows[i] : bar.low);
+              pendingOrder = { side: 'long', price, entryIdx: i };
+            } else {
+              openTradeAt('long', bar.close);
+            }
+          } else if (wantShort && shortSig && rsiOkShort && volOk) {
+            if (trendEntry === 'swing') {
+              const price = Math.max(bar.high, mp.highs[i] != null ? mp.highs[i] : bar.high);
+              pendingOrder = { side: 'short', price, entryIdx: i };
+            } else {
+              openTradeAt('short', bar.close);
+            }
           }
         }
       } else {
@@ -533,6 +560,10 @@ export function runBacktestOnBars(bars, params) {
           inPullbackShort = false; pullbackHighShort = null; trendActiveShort = false;
         }
       }
+
+      // 更新趋势结构信号的「上升沿」状态（必须在每根结束时记录）
+      prevHLup = structHLup[i];
+      prevHLdn = structHLdn[i];
     }
   }
 
