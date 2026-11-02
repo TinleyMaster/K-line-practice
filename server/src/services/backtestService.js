@@ -231,6 +231,23 @@ export async function loadBars(symbol, market, limit, offset, since, until) {
   }));
 }
 
+// VP 止损：入场价下方/上方最近的 HVN 之外（跌破 HVN=筹码被击穿该跑）。无 HVN 时用 VA 边界兜底。
+export function vpStopFor(bars, i, side, entryPrice, vpWindow, vpNB, vaPct, vpStopBuf) {
+  const prof = vpProfile(bars, Math.max(0, i - vpWindow), i - 1, vpNB, vaPct);
+  if (!prof) return null;
+  let stop;
+  if (side === 'long') {
+    const hvnBelow = prof.hvn.filter((x) => x < entryPrice).sort((p, q) => q - p);
+    const lvl = hvnBelow.length ? hvnBelow[0] : prof.vaLow;
+    stop = lvl * (1 - vpStopBuf / 100);
+  } else {
+    const hvnAbove = prof.hvn.filter((x) => x > entryPrice).sort((p, q) => p - q);
+    const lvl = hvnAbove.length ? hvnAbove[0] : prof.vaHigh;
+    stop = lvl * (1 + vpStopBuf / 100);
+  }
+  return stop;
+}
+
 // 计算一段 K 线的完整成交量分布剖面（"筹码位置地图"）：POC / 价值区 VA(vaPct) / HVN(高量节点) / LVN(低量真空带)。
 // 量按每根 K 线的 [low,high] 区间平摊到分箱，得到更真实的剖面形状（HVN=客观 S/R，LVN=加速真空带）。
 export function vpProfile(bars, from, to, NB = 80, vaPct = 0.7) {
@@ -509,6 +526,7 @@ export function runBacktestOnBars(bars, params) {
           let stopLoss;
           if (stopMode === 'pct') stopLoss = side === 'long' ? entryPrice * (1 - stopPct / 100) : entryPrice * (1 + stopPct / 100);
           else if (stopMode === 'defense') stopLoss = side === 'long' ? Math.min(defenseLow[i] ?? bar.low, entryPrice) : Math.max(defenseHigh[i] ?? bar.high, entryPrice);
+          else if (stopMode === 'vp') stopLoss = vpStopFor(bars, i, side, entryPrice, vpWindow, vpNB, vaPct, vpStopBuf);
           else stopLoss = side === 'long' ? entryPrice - (atr[i] ?? entryPrice * 0.02) * atrMult : entryPrice + (atr[i] ?? entryPrice * 0.02) * atrMult;
           const stopDistPct = side === 'long' ? (entryPrice - stopLoss) / entryPrice * 100 : (stopLoss - entryPrice) / entryPrice * 100;
           if ((side === 'long' ? stopLoss < entryPrice : stopLoss > entryPrice) && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
@@ -599,6 +617,7 @@ export function runBacktestOnBars(bars, params) {
             let stopLoss;
             if (stopMode === 'defense') stopLoss = Math.min(defenseLow[i] ?? bar.low, bar.low);
             else if (stopMode === 'atr') stopLoss = bar.close - (atr[i] ?? bar.close * 0.02) * atrMult;
+            else if (stopMode === 'vp') stopLoss = vpStopFor(bars, i, 'long', bar.close, vpWindow, vpNB, vaPct, vpStopBuf);
             else stopLoss = bar.close * (1 - stopPct / 100);
             const stopDistPct = stopLoss < bar.close ? (bar.close - stopLoss) / bar.close * 100 : 999;
             if (stopLoss < bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
@@ -620,6 +639,7 @@ export function runBacktestOnBars(bars, params) {
             let stopLoss;
             if (stopMode === 'defense') stopLoss = Math.max(defenseHigh[i] ?? bar.high, bar.high);
             else if (stopMode === 'atr') stopLoss = bar.close + (atr[i] ?? bar.close * 0.02) * atrMult;
+            else if (stopMode === 'vp') stopLoss = vpStopFor(bars, i, 'short', bar.close, vpWindow, vpNB, vaPct, vpStopBuf);
             else stopLoss = bar.close * (1 + stopPct / 100);
             const stopDistPct = stopLoss > bar.close ? (stopLoss - bar.close) / bar.close * 100 : 999;
             if (stopLoss > bar.close && stopDistPct >= minStopPct && stopDistPct <= maxStopPct) {
