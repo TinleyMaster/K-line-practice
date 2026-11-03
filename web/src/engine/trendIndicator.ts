@@ -10,7 +10,44 @@
  * 通过 klinecharts 的 registerIndicator 注册，名字为 'TRENDSTRUCT'，
  * 以便 IndicatorPicker / ChartPanel 的通用装载逻辑能识别它。
  */
-import { registerIndicator, registerOverlay } from 'klinecharts';
+import { registerFigure, registerIndicator, registerOverlay } from 'klinecharts';
+
+/**
+ * 自定义图形：Pinbar 方向箭头。
+ *
+ * klinecharts 内置 indicator figure 只有 circle / rect / text / line（没有三角箭头），
+ * 所以这里用 registerFigure 注册一个轻量三角形：
+ *   - 看涨 Pinbar（长下影）→ 向上三角，画在蜡烛**下方**（指向蜡烛，暗示反转向上）
+ *   - 看跌 Pinbar（长上影）→ 向下三角，画在蜡烛**上方**（指向蜡烛，暗示反转向下）
+ *
+ * 位置由 indicator 的 attrs 回调给出（已换算成像素坐标 + 固定 8px 偏移，
+ * 这样无论缩放都在蜡烛外侧，不会盖住实体）。
+ */
+registerFigure({
+  name: 'pinbarArrow',
+  draw: (ctx, attrs) => {
+    const a = attrs as { x?: number; y?: number; dir?: 'up' | 'down'; color?: string };
+    const { x, y, dir, color } = a;
+    if (typeof x !== 'number' || typeof y !== 'number') return;
+    const s = 5;
+    ctx.save();
+    ctx.fillStyle = color || '#FCD535';
+    ctx.beginPath();
+    if (dir === 'up') {
+      ctx.moveTo(x, y - s);
+      ctx.lineTo(x - s, y + s);
+      ctx.lineTo(x + s, y + s);
+    } else {
+      ctx.moveTo(x, y + s);
+      ctx.lineTo(x - s, y - s);
+      ctx.lineTo(x + s, y - s);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  },
+  checkEventOn: () => false,
+});
 
 /**
  * 合并连续同类型摆动点：保证高/低严格交替。
@@ -392,5 +429,109 @@ registerOverlay({
         styles: { style: 'fill', color: mc, borderColor: '#ffffff', borderSize: 1.5 },
       },
     ] as never;
+  },
+});
+
+/**
+ * 自定义指标：Pinbar（Pinocchio Bar，_pin 棒 / 钉状线）
+ *
+ * Pinbar 是一种**价格行为形态**（不是数值指标），特征是一根 K 线有：
+ *   - 极长的「鼻线」（影线），占整根区间的大头；
+ *   - 极小的实体（开收接近），且实体靠近区间**另一端**；
+ *   - 用「长上影 / 长下影」来识别：长上影 = 看跌（上方抛压重），长下影 = 看涨（下方承接强）。
+ *
+ * 识别口径（与 server 端无耦合，纯前端逐根判定，随图表数据走）：
+ *   - range = high - low（区间）
+ *   - body  = |close - open|（实体）
+ *   - upperWick = high - max(open, close)
+ *   - lowerWick = min(open, close) - low
+ *   满足全部条件才算 Pinbar：
+ *     ① 实体不能太大：body ≤ bodyToRange × range（默认 0.33）
+ *     ② 鼻线要够长：nose ≥ noseToBody × body（默认 2 倍实体）
+ *     ③ 鼻线要主导区间：nose ≥ noseToRange × range（默认 0.6）
+ *   方向：lowerWick > upperWick → 看涨 Pinbar（长下影）；否则 → 看跌 Pinbar（长上影）。
+ *   （双向影线都长、但实体极小的是 spinning top / doji，不算 pinbar —— ③ 已排除。）
+ *
+ * 通过 registerIndicator 注册为 'PINBAR'，与 TRENDSTRUCT 一样走通用装载逻辑。
+ * 画在蜡烛主图（series:'price'），用 pinbarArrow 图形在鼻线那端标一个小三角。
+ *
+ * calcParams = [noseToBody, bodyToRange, noseToRange]，可微调严格度。
+ */
+registerIndicator({
+  name: 'PINBAR',
+  shortName: 'Pinbar',
+  series: 'price',
+  calcParams: [2, 0.33, 0.6],
+  precision: 2,
+  shouldOhlc: true,
+  figures: [
+    {
+      key: 'bullPin',
+      title: '看涨Pinbar: ',
+      type: 'pinbarArrow',
+      attrs: (params) => {
+        const c = (params as { coordinate: { current: Record<string, number> } }).coordinate.current;
+        const v = c && c.bullPin;
+        if (typeof v !== 'number') return null;
+        return { x: c.x, y: v + 8, dir: 'up', color: '#0ECB81' };
+      },
+    },
+    {
+      key: 'bearPin',
+      title: '看跌Pinbar: ',
+      type: 'pinbarArrow',
+      attrs: (params) => {
+        const c = (params as { coordinate: { current: Record<string, number> } }).coordinate.current;
+        const v = c && c.bearPin;
+        if (typeof v !== 'number') return null;
+        return { x: c.x, y: v - 8, dir: 'down', color: '#F6465D' };
+      },
+    },
+  ],
+  calc: (dataList, indicator) => {
+    const params = (indicator.calcParams as number[]) || [];
+    const noseToBody = Number(params?.[0] ?? 2);
+    const bodyToRange = Number(params?.[1] ?? 0.33);
+    const noseToRange = Number(params?.[2] ?? 0.6);
+
+    return dataList.map((k) => {
+      const o = k.open as number;
+      const h = k.high as number;
+      const l = k.low as number;
+      const c = k.close as number;
+      const range = h - l;
+      const body = Math.abs(c - o);
+      const upperWick = h - Math.max(o, c);
+      const lowerWick = Math.min(o, c) - l;
+      // 区间无效 / 实体过大 / 鼻线不够长 / 鼻线不主导区间 → 不是 pinbar
+      if (!(range > 0)) return {};
+      if (body > bodyToRange * range) return {};
+      const nose = Math.max(upperWick, lowerWick);
+      if (nose < noseToBody * body) return {};
+      if (nose < noseToRange * range) return {};
+      // 看涨 pinbar（长下影）→ 在低点标向上三角；看跌（长上影）→ 在高点标向下三角
+      return lowerWick > upperWick ? { bullPin: l, bearPin: undefined } : { bullPin: undefined, bearPin: h };
+    });
+  },
+  createTooltipDataSource: (params) => {
+    const { indicator, crosshair } = params as {
+      indicator: { result: Array<Record<string, number | null | undefined>> };
+      crosshair: { dataIndex?: number };
+    };
+    const idx = crosshair?.dataIndex;
+    const result = indicator?.result;
+    if (idx == null || !result || !result[idx]) {
+      return { name: 'Pinbar', calcParamsText: '', features: [], legends: [] };
+    }
+    const cur = result[idx];
+    const isBull = cur.bullPin != null;
+    const isBear = cur.bearPin != null;
+    const kind = isBull ? '看涨 Pinbar（长下影）' : isBear ? '看跌 Pinbar（长上影）' : '非 Pinbar';
+    return {
+      name: 'Pinbar',
+      calcParamsText: '',
+      features: [],
+      legends: [{ title: '形态', value: kind }],
+    };
   },
 });
