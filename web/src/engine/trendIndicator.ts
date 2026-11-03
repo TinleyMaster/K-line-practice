@@ -445,23 +445,28 @@ registerOverlay({
  *   - body  = |close - open|（实体）
  *   - upperWick = high - max(open, close)
  *   - lowerWick = min(open, close) - low
- *   满足全部条件才算 Pinbar：
+ *   满足全部条件才算 Pinbar 候选：
  *     ① 实体不能太大：body ≤ bodyToRange × range（默认 0.33）
  *     ② 鼻线要够长：nose ≥ noseToBody × body（默认 2 倍实体）
  *     ③ 鼻线要主导区间：nose ≥ noseToRange × range（默认 0.6）
- *   方向：lowerWick > upperWick → 看涨 Pinbar（长下影）；否则 → 看跌 Pinbar（长上影）。
+ *   方向：lowerWick > upperWick → 看涨候选（长下影）；否则 → 看跌候选（长上影）。
+ *
+ *   ⚠️ **只在趋势拐点才标记**：Pinbar 作为反转信号，只有出现在摆动高点 / 摆动低点才有效。
+ *     - 看跌 Pinbar（长上影）只在**摆动高点**标记（该根 high 是左右各 swingWindow 根内的最高）；
+ *     - 看涨 Pinbar（长下影）只在**摆动低点**标记（该根 low 是左右各 swingWindow 根内的最低）。
+ *     窗口右侧不完整（图表最右 swingWindow 根）暂不确认，避免右边缘误标 / 未来泄漏。
  *   （双向影线都长、但实体极小的是 spinning top / doji，不算 pinbar —— ③ 已排除。）
  *
  * 通过 registerIndicator 注册为 'PINBAR'，与 TRENDSTRUCT 一样走通用装载逻辑。
  * 画在蜡烛主图（series:'price'），用 pinbarArrow 图形在鼻线那端标一个小三角。
  *
- * calcParams = [noseToBody, bodyToRange, noseToRange]，可微调严格度。
+ * calcParams = [noseToBody, bodyToRange, noseToRange, swingWindow]，最后一项控制摆动窗口半宽。
  */
 registerIndicator({
   name: 'PINBAR',
   shortName: 'Pinbar',
   series: 'price',
-  calcParams: [2, 0.33, 0.6],
+  calcParams: [2, 0.33, 0.6, 5],
   precision: 2,
   shouldOhlc: true,
   figures: [
@@ -493,25 +498,56 @@ registerIndicator({
     const noseToBody = Number(params?.[0] ?? 2);
     const bodyToRange = Number(params?.[1] ?? 0.33);
     const noseToRange = Number(params?.[2] ?? 0.6);
+    const swingWindow = Math.max(1, Math.floor(Number(params?.[3] ?? 5)));
 
-    return dataList.map((k) => {
-      const o = k.open as number;
-      const h = k.high as number;
-      const l = k.low as number;
-      const c = k.close as number;
+    const n = dataList.length;
+    const highArr: number[] = new Array(n);
+    const lowArr: number[] = new Array(n);
+    // dir[i]: 1 = 看涨候选（长下影）/ -1 = 看跌候选（长上影）/ 0 = 非 pinbar
+    const dir: number[] = new Array(n).fill(0);
+
+    // 第一遍：逐根判定 pinbar 候选方向
+    for (let i = 0; i < n; i++) {
+      const k = dataList[i] as { open: number; high: number; low: number; close: number };
+      const o = k.open;
+      const h = k.high;
+      const l = k.low;
+      const c = k.close;
+      highArr[i] = h;
+      lowArr[i] = l;
       const range = h - l;
       const body = Math.abs(c - o);
       const upperWick = h - Math.max(o, c);
       const lowerWick = Math.min(o, c) - l;
       // 区间无效 / 实体过大 / 鼻线不够长 / 鼻线不主导区间 → 不是 pinbar
-      if (!(range > 0)) return {};
-      if (body > bodyToRange * range) return {};
+      if (!(range > 0)) continue;
+      if (body > bodyToRange * range) continue;
       const nose = Math.max(upperWick, lowerWick);
-      if (nose < noseToBody * body) return {};
-      if (nose < noseToRange * range) return {};
-      // 看涨 pinbar（长下影）→ 在低点标向上三角；看跌（长上影）→ 在高点标向下三角
-      return lowerWick > upperWick ? { bullPin: l, bearPin: undefined } : { bullPin: undefined, bearPin: h };
-    });
+      if (nose < noseToBody * body) continue;
+      if (nose < noseToRange * range) continue;
+      dir[i] = lowerWick > upperWick ? 1 : -1;
+    }
+
+    // 第二遍：只在「摆动高点 / 摆动低点」保留对应方向的 pinbar
+    //   摆动高点 = 该根 high 严格大于窗口内其余根；摆动低点 = 该根 low 严格小于窗口内其余根。
+    //   右侧窗口不完整（图表最右 swingWindow 根）暂不确认，避免右边缘误标 / 泄漏未来。
+    const out: Array<Record<string, number | undefined>> = new Array(n).fill(null).map(() => ({}));
+    for (let i = 0; i < n; i++) {
+      if (dir[i] === 0) continue;
+      const left = Math.max(0, i - swingWindow);
+      const right = Math.min(n - 1, i + swingWindow);
+      if (right - i < swingWindow) continue; // 右侧窗口不完整 → 不确认
+      let isHigh = true;
+      let isLow = true;
+      for (let j = left; j <= right; j++) {
+        if (j === i) continue;
+        if (highArr[j] >= highArr[i]) isHigh = false;
+        if (lowArr[j] <= lowArr[i]) isLow = false;
+      }
+      if (dir[i] === -1 && isHigh) out[i] = { bullPin: undefined, bearPin: highArr[i] };
+      else if (dir[i] === 1 && isLow) out[i] = { bullPin: lowArr[i], bearPin: undefined };
+    }
+    return out;
   },
   createTooltipDataSource: (params) => {
     const { indicator, crosshair } = params as {
@@ -526,7 +562,11 @@ registerIndicator({
     const cur = result[idx];
     const isBull = cur.bullPin != null;
     const isBear = cur.bearPin != null;
-    const kind = isBull ? '看涨 Pinbar（长下影）' : isBear ? '看跌 Pinbar（长上影）' : '非 Pinbar';
+    const kind = isBull
+      ? '看涨 Pinbar（趋势低点·长下影）'
+      : isBear
+        ? '看跌 Pinbar（趋势高点·长上影）'
+        : '非 Pinbar';
     return {
       name: 'Pinbar',
       calcParamsText: '',

@@ -423,7 +423,7 @@ klinecharts v10 内置 27 个指标，本项目**不自己写公式**，直接�
 
 | 分组 | 指标 |
 |---|---|
-| **主图叠加**（画在 K 线上，不占额外高度） | MA / EMA / SMA / BOLL / DMA / AVP / BBI / SAR / TRIX / BIAS（另含两个自定义：TRENDSTRUCT 趋势结构、PINBAR 形态棒） |
+| **主图叠加**（画在 K 线上，不占额外高度） | MA / EMA / SMA / BOLL / DMA / AVP / BBI / SAR / TRIX / BIAS（另含两个自定义：TRENDSTRUCT 趋势结构、PINBAR 拐点形态） |
 | **独立副图**（自动开新窗格） | VOL / RSI / MACD / KDJ / CCI / WR / VR / PSY / ROC / OBV / BRAR / CR / DMI / EMV / MTM / PVT / AO / TRIX / BIAS |
 
 - **4h 与 1h 各自独立配置** —— 4h 看趋势常配 BOLL + 慢均线，1h 看入场常配 MACD + RSI，

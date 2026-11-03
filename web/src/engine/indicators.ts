@@ -47,7 +47,7 @@ const OVERLAY: IndicatorSpec[] = [
   { name: 'TRIX', label: 'TRIX 三重指数', group: 'overlay', calcParams: [12], defaultOn: false },
   { name: 'BIAS', label: 'BIAS 乖离率', group: 'overlay', calcParams: [6, 12, 24], defaultOn: false },
   { name: 'TRENDSTRUCT', label: '趋势结构 (EMA + 摆动高低点)', group: 'overlay', calcParams: [40, 15, 12, 26, 9, 21, 55, 144], defaultOn: false },
-  { name: 'PINBAR', label: 'Pinbar 形态棒', group: 'overlay', calcParams: [2, 0.33, 0.6], defaultOn: false },
+  { name: 'PINBAR', label: 'Pinbar 拐点形态', group: 'overlay', calcParams: [2, 0.33, 0.6, 5], defaultOn: false },
 ];
 
 /**
