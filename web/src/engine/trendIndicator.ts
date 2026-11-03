@@ -451,22 +451,31 @@ registerOverlay({
  *     ③ 鼻线要主导区间：nose ≥ noseToRange × range（默认 0.6）
  *   方向：lowerWick > upperWick → 看涨候选（长下影）；否则 → 看跌候选（长上影）。
  *
- *   ⚠️ **只在趋势拐点才标记**：Pinbar 作为反转信号，只有出现在摆动高点 / 摆动低点才有效。
- *     - 看跌 Pinbar（长上影）只在**摆动高点**标记（该根 high 是左右各 swingWindow 根内的最高）；
- *     - 看涨 Pinbar（长下影）只在**摆动低点**标记（该根 low 是左右各 swingWindow 根内的最低）。
- *     窗口右侧不完整（图表最右 swingWindow 根）暂不确认，避免右边缘误标 / 未来泄漏。
+ *   ⚠️ **只在「真实价格转折」处标记**，过滤掉趋势中途回调与震荡区间内部的噪音：
+ *     用 ZigZag 拐点检测 —— 只有当价格从一根 K 线的极值**反向运行 ≥ revPct** 时，
+ *     才确认它是拐点（摆动高点 / 摆动低点）。
+ *     - 看跌 Pinbar（长上影）只在被确认的**摆动高点**标记；
+ *     - 看涨 Pinbar（长下影）只在被确认的**摆动低点**标记。
+ *     这样：趋势半山腰的短暂回撤（之后又继续原方向，没反向 revPct）不会形成拐点，
+ *     震荡区间内部的小凸起/小凹陷（幅度 < revPct）也不会被标记，只有区间上下沿、
+ *     趋势顶底这类「真正转折」才会亮起。
+ *     ⏱ 拐点需等反转确认后才出现（滞后若干根），图表最右端因数据不足暂不确认，
+ *     避免右边缘误标 / 泄漏未来。
  *   （双向影线都长、但实体极小的是 spinning top / doji，不算 pinbar —— ③ 已排除。）
  *
  * 通过 registerIndicator 注册为 'PINBAR'，与 TRENDSTRUCT 一样走通用装载逻辑。
  * 画在蜡烛主图（series:'price'），用 pinbarArrow 图形在鼻线那端标一个小三角。
  *
- * calcParams = [noseToBody, bodyToRange, noseToRange, swingWindow]，最后一项控制摆动窗口半宽。
+ * calcParams = [noseToBody, bodyToRange, noseToRange, revPct]
+ *   - 前三项控制 pinbar 形态严格度；
+ *   - revPct（默认 0.01 = 1%）是 ZigZag 反转确认阈值：调大 → 只认大幅转折，
+ *     调小 → 对小幅波动也更敏感（可能把半山腰的回调也放进来）。
  */
 registerIndicator({
   name: 'PINBAR',
   shortName: 'Pinbar',
   series: 'price',
-  calcParams: [2, 0.33, 0.6, 5],
+  calcParams: [2, 0.33, 0.6, 0.01],
   precision: 2,
   shouldOhlc: true,
   figures: [
@@ -498,7 +507,7 @@ registerIndicator({
     const noseToBody = Number(params?.[0] ?? 2);
     const bodyToRange = Number(params?.[1] ?? 0.33);
     const noseToRange = Number(params?.[2] ?? 0.6);
-    const swingWindow = Math.max(1, Math.floor(Number(params?.[3] ?? 5)));
+    const revPct = Math.max(0.0005, Number(params?.[3] ?? 0.01));
 
     const n = dataList.length;
     const highArr: number[] = new Array(n);
@@ -528,24 +537,73 @@ registerIndicator({
       dir[i] = lowerWick > upperWick ? 1 : -1;
     }
 
-    // 第二遍：只在「摆动高点 / 摆动低点」保留对应方向的 pinbar
-    //   摆动高点 = 该根 high 严格大于窗口内其余根；摆动低点 = 该根 low 严格小于窗口内其余根。
-    //   右侧窗口不完整（图表最右 swingWindow 根）暂不确认，避免右边缘误标 / 泄漏未来。
+    // 第二遍：ZigZag 拐点检测（反转确认）。
+    //   沿价格推进，跟踪当前腿的极值；当价格从极值反向运行 ≥ revPct 时，
+    //   该极值所在的那根 K 线被确认为一个拐点（摆动高点 / 摆动低点），并翻向另一条腿。
+    //   —— 只有「真正转折」（区间上下沿、趋势顶底）才会被确认；
+    //      趋势半山腰的回调（之后继续原方向，未反向 revPct）与震荡内部的微小波动（< revPct）都不会形成拐点。
+    const isHigh = new Array(n).fill(false);
+    const isLow = new Array(n).fill(false);
+    if (n > 0) {
+      let dir0 = 0; // 0 未定 / 1 上行腿(跟踪高点) / -1 下行腿(跟踪低点)
+      let extHigh = highArr[0];
+      let extHighI = 0;
+      let extLow = lowArr[0];
+      let extLowI = 0;
+      for (let i = 1; i < n; i++) {
+        if (dir0 === 0) {
+          if (highArr[i] >= extLow * (1 + revPct)) {
+            isLow[extLowI] = true;
+            dir0 = 1;
+            extHigh = highArr[i];
+            extHighI = i;
+          } else if (lowArr[i] <= extHigh * (1 - revPct)) {
+            isHigh[extHighI] = true;
+            dir0 = -1;
+            extLow = lowArr[i];
+            extLowI = i;
+          } else {
+            if (highArr[i] > extHigh) {
+              extHigh = highArr[i];
+              extHighI = i;
+            }
+            if (lowArr[i] < extLow) {
+              extLow = lowArr[i];
+              extLowI = i;
+            }
+          }
+        } else if (dir0 === 1) {
+          // 上行腿：持续刷新高点；跌破 extHigh 的 revPct → 确认高点为摆动高点
+          if (highArr[i] > extHigh) {
+            extHigh = highArr[i];
+            extHighI = i;
+          }
+          if (lowArr[i] <= extHigh * (1 - revPct)) {
+            isHigh[extHighI] = true;
+            dir0 = -1;
+            extLow = lowArr[i];
+            extLowI = i;
+          }
+        } else {
+          // 下行腿：持续刷新低点；涨破 extLow 的 revPct → 确认低点为摆动低点
+          if (lowArr[i] < extLow) {
+            extLow = lowArr[i];
+            extLowI = i;
+          }
+          if (highArr[i] >= extLow * (1 + revPct)) {
+            isLow[extLowI] = true;
+            dir0 = 1;
+            extHigh = highArr[i];
+            extHighI = i;
+          }
+        }
+      }
+    }
+
     const out: Array<Record<string, number | undefined>> = new Array(n).fill(null).map(() => ({}));
     for (let i = 0; i < n; i++) {
-      if (dir[i] === 0) continue;
-      const left = Math.max(0, i - swingWindow);
-      const right = Math.min(n - 1, i + swingWindow);
-      if (right - i < swingWindow) continue; // 右侧窗口不完整 → 不确认
-      let isHigh = true;
-      let isLow = true;
-      for (let j = left; j <= right; j++) {
-        if (j === i) continue;
-        if (highArr[j] >= highArr[i]) isHigh = false;
-        if (lowArr[j] <= lowArr[i]) isLow = false;
-      }
-      if (dir[i] === -1 && isHigh) out[i] = { bullPin: undefined, bearPin: highArr[i] };
-      else if (dir[i] === 1 && isLow) out[i] = { bullPin: lowArr[i], bearPin: undefined };
+      if (dir[i] === -1 && isHigh[i]) out[i] = { bullPin: undefined, bearPin: highArr[i] };
+      else if (dir[i] === 1 && isLow[i]) out[i] = { bullPin: lowArr[i], bearPin: undefined };
     }
     return out;
   },
@@ -563,9 +621,9 @@ registerIndicator({
     const isBull = cur.bullPin != null;
     const isBear = cur.bearPin != null;
     const kind = isBull
-      ? '看涨 Pinbar（趋势低点·长下影）'
+      ? '看涨 Pinbar（真实低点转折·长下影）'
       : isBear
-        ? '看跌 Pinbar（趋势高点·长上影）'
+        ? '看跌 Pinbar（真实高点转折·长上影）'
         : '非 Pinbar';
     return {
       name: 'Pinbar',
