@@ -8,7 +8,7 @@
  *   - EMA 共振验证（21 / 55 / 144）
  *
  * 通过 klinecharts 的 registerIndicator 注册，名字为 'TRENDSTRUCT'，
- * 以便 IndicatorPicker / ChartPanel 的通用装载逻辑能识别它。
+ * 以便 IndicatorBar / ChartPanel 的通用装载逻辑能识别它。
  */
 import { registerFigure, registerIndicator, registerOverlay } from 'klinecharts';
 

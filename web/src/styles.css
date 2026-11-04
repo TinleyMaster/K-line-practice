@@ -533,6 +533,104 @@ body {
   font-size: 11px;
 }
 
+/* ---------- 技术指标工具栏（币安风格横排） ---------- */
+.ind-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ind-bar-period {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fcd535;
+  border: 1px solid rgba(252, 213, 53, 0.35);
+  border-radius: var(--radius);
+  background: rgba(252, 213, 53, 0.06);
+}
+
+.ind-bar-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+
+.ind-bar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ind-bar-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.ind-chip {
+  flex: none;
+  appearance: none;
+  cursor: pointer;
+  padding: 3px 9px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.ind-chip:hover {
+  color: var(--text-bright, #eaecef);
+  border-color: var(--text-muted);
+}
+
+.ind-chip.on {
+  color: #fcd535;
+  border-color: #fcd535;
+  background: rgba(252, 213, 53, 0.12);
+  font-weight: 600;
+}
+
+.ind-chip.pane.on {
+  color: #7aa2f7;
+  border-color: #7aa2f7;
+  background: rgba(122, 162, 247, 0.12);
+}
+
+.ind-chip.limited {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ind-bar-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
 /* ---------- 回放控制 ---------- */
 .replay-controls {
   display: flex;

@@ -10,7 +10,7 @@ import { AccountPanel } from './components/AccountPanel';
 import { JournalModal } from './components/JournalModal';
 import { StatsView } from './components/StatsView';
 import { SetupLibrary } from './components/SetupLibrary';
-import { IndicatorPicker } from './components/IndicatorPicker';
+import { IndicatorBar } from './components/IndicatorBar';
 import { StartTimePicker } from './components/StartTimePicker';
 import { AuthPanel } from './components/AuthPanel';
 import { PkView } from './components/PkView';
@@ -263,6 +263,13 @@ export default function App() {
                   backtestMarkers={backtestMarkers}
                 />
 
+                <IndicatorBar
+                  value4h={store.indicators4h}
+                  value1h={store.indicators1h}
+                  onChange={(p, names) => store.setIndicators(p, names)}
+                  currentPeriod={store.chartPeriod}
+                />
+
                 <ReplayControls
                   playing={store.playing}
                   speed={store.speed}
@@ -288,14 +295,6 @@ export default function App() {
                     onSet={(t) => store.setStartTime(t)}
                     open={popup === 'start'}
                     onOpenChange={(o) => setPopup(o ? 'start' : null)}
-                  />
-                  <IndicatorPicker
-                    value4h={store.indicators4h}
-                    value1h={store.indicators1h}
-                    onChange={(p, names) => store.setIndicators(p, names)}
-                    currentPeriod={store.chartPeriod}
-                    open={popup === 'indicators'}
-                    onOpenChange={(o) => setPopup(o ? 'indicators' : null)}
                   />
                   <span className="jump-sep" />
                   <span className="muted">跳到第</span>

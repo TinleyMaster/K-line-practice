@@ -8,7 +8,7 @@ import { PositionPanel } from './PositionPanel';
 import { AccountPanel } from './AccountPanel';
 import { JournalModal } from './JournalModal';
 import { StartTimePicker } from './StartTimePicker';
-import { IndicatorPicker } from './IndicatorPicker';
+import { IndicatorBar } from './IndicatorBar';
 import { PendingJournal } from './PendingJournal';
 import { BottomSheet } from './BottomSheet';
 import { fmtPrice } from '../engine/bars';
@@ -112,6 +112,13 @@ export function MobilePractice({
               period={store.chartPeriod}
               onPeriodChange={store.setChartPeriod}
               backtestMarkers={backtestMarkers}
+            />
+
+            <IndicatorBar
+              value4h={store.indicators4h}
+              value1h={store.indicators1h}
+              onChange={(p, names) => store.setIndicators(p, names)}
+              currentPeriod={store.chartPeriod}
             />
 
             {stats && (
@@ -283,14 +290,6 @@ export function MobilePractice({
             onSet={(t) => store.setStartTime(t)}
             open={popup === 'start'}
             onOpenChange={(o) => setPopup(o ? 'start' : null)}
-          />
-          <IndicatorPicker
-            value4h={store.indicators4h}
-            value1h={store.indicators1h}
-            onChange={(p, names) => store.setIndicators(p, names)}
-            currentPeriod={store.chartPeriod}
-            open={popup === 'indicators'}
-            onOpenChange={(o) => setPopup(o ? 'indicators' : null)}
           />
           <div className="m-jump">
             <span className="muted">跳到第</span>
