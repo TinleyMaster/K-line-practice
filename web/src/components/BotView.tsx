@@ -4,11 +4,11 @@ import { usePracticeStore } from '../store/usePracticeStore';
 import type { Bar, ChartPeriod, Market } from '../types';
 import {
   getStrategy,
-  pinbarTrendStrategy,
   runBacktest,
   runMultiBacktest,
   sweepParams,
   SIGNAL_MODULES,
+  STRATEGIES,
   type BacktestResult,
   type BacktestStats,
   type MultiResult,
@@ -25,17 +25,20 @@ interface Props {
 type Mode = 'single' | 'batch' | 'sweep';
 
 const DEFAULT_PARAMS: StrategyParams = {
-  signals: { pinbar: false, trend_pullback: true },
+  signals: { pinbar: false, trend_pullback: true, mean_reversion: true },
   trendEnabled: true,
   trendPeriod: 60,
   requireTrendAligned: true,
   stopType: 'signal',
-  atrPeriod: 14,
+  atrPeriod: 20,
   atrMult: 2,
   takeProfitR: 2,
-  exitType: 'trail',
-  riskPct: 1,
+  exitType: 'target',
   maxConcurrent: 1,
+  regimeWindow: 30,
+  regimeHi: 0.4,
+  regimeLo: 0.2,
+  riskPct: 1,
   startEquity: 10000,
   feeRate: 0.0004,
   slippageBps: 0,
@@ -116,6 +119,7 @@ export function BotView({ onShowMarkers }: Props) {
   const [period, setPeriod] = useState<ChartPeriod>('1h');
   const [params, setParams] = useState<StrategyParams>(DEFAULT_PARAMS);
   const [mode, setMode] = useState<Mode>('single');
+  const [strategyName, setStrategyName] = useState<string>('regime_switch');
 
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [multi, setMulti] = useState<MultiResult | null>(null);
@@ -136,7 +140,7 @@ export function BotView({ onShowMarkers }: Props) {
     setSweep(null);
   };
 
-  const strategy = getStrategy(pinbarTrendStrategy.name);
+  const strategy = getStrategy(strategyName);
 
   const run = async () => {
     setLoading(true);
@@ -304,6 +308,29 @@ export function BotView({ onShowMarkers }: Props) {
             </div>
           )}
 
+          <h3>策略（分层引擎）</h3>
+          <div className="bot-row">
+            <label>
+              策略
+              <select
+                className="input"
+                value={strategyName}
+                onChange={(e) => setStrategyName(e.target.value)}
+              >
+                {STRATEGIES.map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {strategyName === 'regime_switch' && (
+            <div className="bot-hint muted">
+              按"效率比"判定趋势/震荡市：趋势市放行顺势信号、震荡市放行均值回归。需同时勾选两类信号。
+            </div>
+          )}
+
           <h3>信号（可插拔）</h3>
           <div className="bot-signals">
             {SIGNAL_MODULES.map((m) => (
@@ -346,6 +373,39 @@ export function BotView({ onShowMarkers }: Props) {
                 onChange={(e) => patch({ requireTrendAligned: e.target.checked })}
               />
               仅顺势
+            </label>
+          </div>
+
+          <h3>Regime 切换（仅元策略用）</h3>
+          <div className="bot-row">
+            <label>
+              效率比窗口
+              <input
+                className="input num"
+                type="number"
+                value={params.regimeWindow}
+                onChange={(e) => patch({ regimeWindow: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              趋势阈值 ≥
+              <input
+                className="input num"
+                type="number"
+                step="0.05"
+                value={params.regimeHi}
+                onChange={(e) => patch({ regimeHi: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              震荡阈值 ≤
+              <input
+                className="input num"
+                type="number"
+                step="0.05"
+                value={params.regimeLo}
+                onChange={(e) => patch({ regimeLo: Number(e.target.value) })}
+              />
             </label>
           </div>
 

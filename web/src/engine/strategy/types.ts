@@ -58,10 +58,16 @@ export interface StrategyParams {
   takeProfitR: number;
   /** 出场方式：target=固定 R 止盈（震荡/反转适用）；trail=趋势翻转才离场（让利润奔跑，趋势跟踪适用） */
   exitType: 'target' | 'trail';
-  /** 单笔风险占权益比（%） */
-  riskPct: number;
   /** 同时持仓上限（通常 1） */
   maxConcurrent: number;
+  /** Regime 切换元策略参数：效率比窗口（根） */
+  regimeWindow: number;
+  /** 效率比 ≥ 此值判为趋势市 */
+  regimeHi: number;
+  /** 效率比 ≤ 此值判为震荡市 */
+  regimeLo: number;
+  /** 单笔风险占权益比（%） */
+  riskPct: number;
   /** 起始权益（U） */
   startEquity: number;
   /** 单边手续费率（小数，0.0004 = 4bp） */

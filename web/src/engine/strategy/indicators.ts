@@ -55,3 +55,50 @@ export function trendBias(closes: number[], ma: number[]): number[] {
     return 0;
   });
 }
+
+/**
+ * 效率比（Efficiency Ratio / 趋势度）：窗口内「净位移」占「总路径」的比例。
+ * ER→1 表示价格几乎单向移动（强趋势）；ER→0 表示来回折返（震荡/区间）。
+ * 仅用 ≤ i 的数据（closes[i-window..i]），零未来函数。
+ */
+export function efficiencyRatio(closes: number[], window: number): number[] {
+  const n = closes.length;
+  const out = new Array<number>(n).fill(NaN);
+  if (window <= 0) return out;
+  for (let i = window; i < n; i++) {
+    let path = 0;
+    for (let k = i - window + 1; k <= i; k++) path += Math.abs(closes[k] - closes[k - 1]);
+    const net = Math.abs(closes[i] - closes[i - window]);
+    out[i] = path > 0 ? net / path : 0;
+  }
+  return out;
+}
+
+export type Regime = 'trend' | 'range' | 'unknown';
+
+/**
+ * 由效率比判定市场状态（带滞后 hysteresis，避免反复横跳空仓）：
+ *  - ER ≥ hi → 趋势市（trend）
+ *  - ER ≤ lo → 震荡市（range）
+ *  - 中间带 → 保持上一根状态
+ * 前向扫描，每根只用 ≤ i 的状态，零未来函数。
+ */
+export function regimeSeries(er: number[], hi: number, lo: number): Regime[] {
+  const n = er.length;
+  const out: Regime[] = new Array<Regime>(n).fill('unknown');
+  let prev: Regime = 'unknown';
+  for (let i = 0; i < n; i++) {
+    const v = er[i];
+    if (!Number.isFinite(v)) {
+      out[i] = prev;
+      continue;
+    }
+    let r: Regime;
+    if (v >= hi) r = 'trend';
+    else if (v <= lo) r = 'range';
+    else r = prev === 'unknown' ? 'range' : prev;
+    out[i] = r;
+    prev = r;
+  }
+  return out;
+}
