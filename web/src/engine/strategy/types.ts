@@ -17,11 +17,15 @@ export interface RawSignal {
   index: number; // 拐点根在 bars 中的下标（pinbar 所在根）
   confirmIndex: number; // 该拐点被「反转确认」的根下标（j）；入场只发生在 j+1，杜绝未来函数
   time: number; // bars[index].time（epoch ms）
-  side: 'bull' | 'bear'; // bull=看多反转 / bear=看空反转
+  side: 'bull' | 'bear'; // bull=看多 / bear=看空
   price: number; // 参考价（信号根收盘或鼻线价）
   module: string; // 产生它的信号模块名
   strength: number; // 0~1 强度（预留给排序 / 过滤）
   stopPrice: number; // 自然止损位（如 pinbar 鼻线外侧）
+  /** 均值回归等策略可附带「目标价位」（如回归均值），优先于固定 R 止盈 */
+  targetPrice?: number;
+  /** 是否逆趋势（均值回归类）：为 true 时策略跳过「仅顺势」过滤，方向由信号自身决定 */
+  againstTrend?: boolean;
 }
 
 /** 信号模块接口：纯函数，不依赖 klinecharts */
@@ -77,6 +81,7 @@ export interface TradeIntent {
   riskPct: number;
   signal: string; // 触发它的信号模块名
   strength: number;
+  againstTrend?: boolean; // 跳过策略的「仅顺势」过滤
 }
 
 export interface Strategy {

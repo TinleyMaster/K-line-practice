@@ -1,4 +1,5 @@
 import type { Bar } from '../../types';
+import { atr, sma } from './indicators';
 import type { RawSignal, SeriesContext, SignalModule } from './types';
 
 /**
@@ -186,8 +187,102 @@ export const trendPullbackSignal: SignalModule = {
   },
 };
 
+/** 滚动标准差（窗口 period，前 period-1 根返回 NaN）。 */
+function rollingStd(values: number[], period: number): number[] {
+  const n = values.length;
+  const out = new Array<number>(n).fill(NaN);
+  if (period <= 1) return out;
+  for (let i = period - 1; i < n; i++) {
+    let sum = 0;
+    for (let k = i - period + 1; k <= i; k++) sum += values[k];
+    const mean = sum / period;
+    let sq = 0;
+    for (let k = i - period + 1; k <= i; k++) sq += (values[k] - mean) ** 2;
+    out[i] = Math.sqrt(sq / period);
+  }
+  return out;
+}
+
+/**
+ * 区间均值回归信号：价格相对均线的偏离用「z 分数 = (close - SMA) / 滚动标准差」衡量。
+ * - 当 z ≤ -entryZ（价格被压到均值下方 entryZ 个标准差）→ 超卖，发多（赌回归均值）；
+ * - 当 z ≥ +entryZ（价格被推到均值上方）→ 超买，发空。
+ * 全部基于 ≤ i 的数据（close/SMA/std 都是因果的）；入场在 i+1 开盘，零未来函数。
+ * 止损取 entry ∓ atrMult×ATR（模块自带，独立于全局 stopType 也能用）；目标价位=回归均值（targetPrice）。
+ * 这是与「趋势跟踪」互补的 edge 类：趋势策略在震荡市亏的钱，均值回归在震荡市赚。
+ */
+export function detectMeanReversion(
+  bars: Bar[],
+  p: { meanPeriod: number; atrPeriod: number; entryZ: number; atrMult: number; cooldown: number },
+): RawSignal[] {
+  const n = bars.length;
+  const closes = bars.map((b) => b.close);
+  const ma = sma(closes, p.meanPeriod);
+  const std = rollingStd(closes, p.meanPeriod);
+  const a = atr(bars, p.atrPeriod);
+  const out: RawSignal[] = [];
+  let lastBull = -1e9;
+  let lastBear = -1e9;
+  for (let i = p.meanPeriod; i < n; i++) {
+    const m = ma[i];
+    const s = std[i];
+    const atrV = a[i];
+    if (!Number.isFinite(m) || !Number.isFinite(s) || s <= 0 || !Number.isFinite(atrV) || atrV <= 0) {
+      continue;
+    }
+    const z = (closes[i] - m) / s;
+    if (z <= -p.entryZ && i - lastBull >= p.cooldown) {
+      lastBull = i;
+      out.push({
+        index: i,
+        confirmIndex: i,
+        time: bars[i].time,
+        side: 'bull',
+        price: closes[i],
+        module: 'mean_reversion',
+        strength: Math.min(1, -z / (p.entryZ * 2)),
+        stopPrice: closes[i] - p.atrMult * atrV, // 自带 ATR 止损，逆势单需给足缓冲
+        targetPrice: m, // 回归均值
+        againstTrend: true,
+      });
+    } else if (z >= p.entryZ && i - lastBear >= p.cooldown) {
+      lastBear = i;
+      out.push({
+        index: i,
+        confirmIndex: i,
+        time: bars[i].time,
+        side: 'bear',
+        price: closes[i],
+        module: 'mean_reversion',
+        strength: Math.min(1, z / (p.entryZ * 2)),
+        stopPrice: closes[i] + p.atrMult * atrV,
+        targetPrice: m,
+        againstTrend: true,
+      });
+    }
+  }
+  return out;
+}
+
+/** 区间均值回归信号模块 */
+export const meanReversionSignal: SignalModule = {
+  name: 'mean_reversion',
+  label: '区间均值回归',
+  description:
+    '价格偏离均值达 entryZ 个标准差时反向开仓，赌回归均值（震荡市赚钱的逻辑，与趋势跟踪互补）。自带 ATR 止损与目标=均值。',
+  detect(bars: Bar[], _ctx: SeriesContext): RawSignal[] {
+    return detectMeanReversion(bars, {
+      meanPeriod: 20,
+      atrPeriod: 20,
+      entryZ: 2,
+      atrMult: 2,
+      cooldown: 10,
+    });
+  },
+};
+
 /** 注册表：所有可插拔信号模块。后续加 MA 金叉、布林收窄等，直接 push 即可。 */
-export const SIGNAL_MODULES: SignalModule[] = [pinbarSignal, trendPullbackSignal];
+export const SIGNAL_MODULES: SignalModule[] = [pinbarSignal, trendPullbackSignal, meanReversionSignal];
 
 export function getSignalModule(name: string): SignalModule | undefined {
   return SIGNAL_MODULES.find((m) => m.name === name);

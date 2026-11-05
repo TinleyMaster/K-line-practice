@@ -48,8 +48,9 @@ export const pinbarTrendStrategy: Strategy = {
       // 确认所用数据（窗口 [confirmIndex-2W, confirmIndex]）全部 ≤ confirmIndex，零未来函数。
       const decIdx = s.confirmIndex;
 
-      // 顺势过滤：趋势明确且与信号同向才入场（bias=0 表示均线未就绪，不交易）
-      if (params.trendEnabled && params.requireTrendAligned) {
+      // 顺势过滤：趋势明确且与信号同向才入场（bias=0 表示均线未就绪，不交易）。
+      // 均值回归类信号（againstTrend）逆向开仓，跳过该过滤——方向由信号自身决定。
+      if (params.trendEnabled && params.requireTrendAligned && !s.againstTrend) {
         if (s.side === 'bull' && bias[decIdx] !== 1) continue; // 只在多头势接多
         if (s.side === 'bear' && bias[decIdx] !== -1) continue; // 只在空头势接空
       }
@@ -67,7 +68,7 @@ export const pinbarTrendStrategy: Strategy = {
         if (!Number.isFinite(a) || a <= 0) continue;
         stopLoss = s.side === 'bull' ? entryPrice - params.atrMult * a : entryPrice + params.atrMult * a;
       } else {
-        // 信号自然止损：pinbar 鼻线再外推一点点缓冲，避免毛刺扫损
+        // 信号自然止损：pinbar 鼻线 / 均值回归的 ATR 止损，再外推一点点缓冲，避免毛刺扫损
         const buffer = Math.max(entryPrice * 0.0005, Math.abs(s.stopPrice - entryPrice) * 0.1);
         stopLoss = s.side === 'bull' ? s.stopPrice - buffer : s.stopPrice + buffer;
       }
@@ -79,14 +80,24 @@ export const pinbarTrendStrategy: Strategy = {
       const dist = Math.abs(entryPrice - stopLoss);
       if (dist <= 0) continue;
 
-      // 出场方式：trail=趋势翻转才离场（让利润奔跑），此时不设固定止盈；
-      // target=固定 R 止盈。二者都保留初始止损来定义 R。
-      const takeProfit =
-        params.exitType === 'trail' || params.takeProfitR <= 0
-          ? null
-          : s.side === 'bull'
+      // 出场方式：
+      //  - 信号自带的 targetPrice（如均值回归回归均值）优先；
+      //  - trail=趋势翻转才离场（让利润奔跑），此时不设固定止盈；
+      //  - 否则固定 R 止盈。三者都保留初始止损来定义 R。
+      let takeProfit: number | null;
+      if (s.targetPrice != null) {
+        takeProfit =
+          s.side === 'bull'
+            ? Math.max(s.targetPrice, entryPrice + dist * 0.1)
+            : Math.min(s.targetPrice, entryPrice - dist * 0.1);
+      } else if (params.exitType === 'trail' || params.takeProfitR <= 0) {
+        takeProfit = null;
+      } else {
+        takeProfit =
+          s.side === 'bull'
             ? entryPrice + params.takeProfitR * dist
             : entryPrice - params.takeProfitR * dist;
+      }
 
       intents.push({
         index: entryIdx,
@@ -98,6 +109,7 @@ export const pinbarTrendStrategy: Strategy = {
         riskPct: params.riskPct,
         signal: s.module,
         strength: s.strength,
+        againstTrend: s.againstTrend,
       });
     }
 
