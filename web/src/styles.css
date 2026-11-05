@@ -1029,6 +1029,14 @@ body {
   margin: 10px 16px;
 }
 
+.banner-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.85;
+  white-space: pre-wrap;
+}
+
 /* ---------- 侧栏账户概览 ---------- */
 .account-panel {
   padding: 10px 12px;
@@ -3339,3 +3347,117 @@ body.popup-open .ind-panel {
 
 /* OHLC detail replaced by klinecharts tooltip box */
 .ohlc-strip { display: none; }
+
+/* ===== 实时模式（阶段一 · 实时盯盘） ===== */
+.mode-toggle {
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.mode-toggle.live-on {
+  background: var(--up);
+  color: #08130d;
+  border-color: var(--up);
+  font-weight: 600;
+}
+.alert-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ap-title { font-size: 12px; color: var(--text); font-weight: 600; }
+.ap-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ap-form .input { flex: 1; min-width: 70px; }
+.ap-list { display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow-y: auto; }
+.ap-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 6px;
+  background: var(--bg-panel-2);
+  border-radius: var(--radius);
+}
+.ap-item.fired { outline: 1px solid var(--accent); }
+.ap-dir { color: var(--accent); font-weight: 700; }
+.ap-price { color: var(--text); font-variant-numeric: tabular-nums; }
+.ap-note { color: var(--text-dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-flag { color: var(--accent); font-size: 10px; }
+.ap-del { padding: 0 6px; line-height: 1.4; }
+.alert-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  text-align: center;
+}
+.am-title { font-size: 16px; font-weight: 700; color: var(--accent); }
+.am-body { font-size: 14px; color: var(--text); }
+
+/* ============================================================
+   自动交易（模拟盘）BotView
+   ============================================================ */
+.bot-view { max-width: 1180px; margin: 0 auto; }
+.bot-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.bot-head h2 { margin: 0; font-size: 18px; }
+.bot-head .muted { font-size: 12px; }
+
+.bot-grid { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .bot-grid { grid-template-columns: 1fr; } }
+
+.bot-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.bot-panel h3 { margin: 16px 0 8px; font-size: 13px; color: var(--text-dim); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.bot-panel h3:first-of-type { margin-top: 0; }
+.bot-panel h4 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
+
+.bot-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.bot-row label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-dim); }
+.bot-row .input { width: auto; min-width: 92px; }
+.bot-row .input.num { width: 78px; }
+.bot-signals { display: flex; flex-wrap: wrap; gap: 8px; }
+.bot-check { flex-direction: row !important; align-items: center; gap: 5px !important; font-size: 12px !important; color: var(--text) !important; }
+
+.bot-actions { display: flex; gap: 10px; margin-top: 16px; }
+
+.bot-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.bot-stat {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bot-stat-v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bot-stat-l { font-size: 10px; color: var(--text-dim); }
+.bot-stat.pos .bot-stat-v { color: #0ECB81; }
+.bot-stat.neg .bot-stat-v { color: #F6465D; }
+
+.bot-equity { width: 100%; height: 180px; background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: var(--radius); }
+
+.bot-trades { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.bot-trades table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.bot-trades th, .bot-trades td { padding: 4px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.bot-trades th { position: sticky; top: 0; background: var(--bg-panel-2); color: var(--text-dim); }
+.bot-trades th:first-child, .bot-trades td:first-child { text-align: left; }
+.bot-trades .up { color: #0ECB81; }
+.bot-trades .down { color: #F6465D; }

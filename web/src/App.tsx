@@ -15,14 +15,16 @@ import { StartTimePicker } from './components/StartTimePicker';
 import { AuthPanel } from './components/AuthPanel';
 import { PkView } from './components/PkView';
 import { BacktestView } from './components/BacktestView';
+import { BotView } from './components/BotView';
 import { PendingJournal } from './components/PendingJournal';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { AlertPanel } from './components/AlertPanel';
 import { MobileTopBar } from './components/MobileTopBar';
 import { MobilePractice } from './components/MobilePractice';
 import { fmtPrice, fmtTime } from './engine/bars';
 import { priceBarAt } from './store/usePracticeStore';
 
-type View = 'practice' | 'stats' | 'setups' | 'pk' | 'backtest';
+type View = 'practice' | 'stats' | 'setups' | 'pk' | 'backtest' | 'bot';
 /** 当前打开的弹出面板（互斥 —— 两个 fixed 弹窗同时存在会互相盖住） */
 type Popup = 'start' | 'indicators' | null;
 
@@ -53,7 +55,9 @@ export default function App() {
     () => priceBarAt(store.bars1h, store.bars15m, store.cursor, store.cursorMs),
     [store.bars1h, store.bars15m, store.cursor, store.cursorMs],
   );
-  const currentPrice = currentBar?.close ?? 0;
+  // 实时模式：优先用 ticker 实时价（更灵敏）；回放模式用光标处收盘价
+  const currentPrice =
+    store.mode === 'live' && store.livePrice != null ? store.livePrice : (currentBar?.close ?? 0);
   const totalR = store.closedTrades.reduce((s, t) => s + t.rMultiple, 0);
 
   /** 顶栏/底栏用的 24h 窗口涨跌（与行情头 MarketHeader 同口径） */
@@ -160,6 +164,13 @@ export default function App() {
         </div>
 
         <div className="topbar-right">
+          <button
+            className={`btn tiny mode-toggle ${store.mode === 'live' ? 'live-on' : 'ghost'}`}
+            onClick={() => store.setMode(store.mode === 'live' ? 'replay' : 'live')}
+            title={store.mode === 'live' ? '当前：实时行情（点击切回回放）' : '当前：历史回放（点击切换到实时行情）'}
+          >
+            {store.mode === 'live' ? (store.liveConnected ? '● 实时' : '○ 实时') : '↺ 回放'}
+          </button>
           <div className="stat-chip">
             <span className="muted">权益</span>
             <strong>${store.equity.toFixed(2)}</strong>
@@ -204,12 +215,21 @@ export default function App() {
         <button className={`tab ${view === 'backtest' ? 'active' : ''}`} onClick={() => setView('backtest')}>
           回测
         </button>
+        <button className={`tab ${view === 'bot' ? 'active' : ''}`} onClick={() => setView('bot')}>
+          自动交易
+        </button>
         <button className={`tab ${view === 'setups' ? 'active' : ''}`} onClick={() => setView('setups')}>
           设置库
         </button>
       </nav>
 
       {store.error && <div className="notice error banner">{store.error}</div>}
+      {store.liveError && (
+        <div className="notice warn banner">
+          实时行情：{store.liveError}
+          {store.liveErrorHint && <div className="banner-hint">{store.liveErrorHint}</div>}
+        </div>
+      )}
 
       {store.market === 'stock' && ffillCount > 0 && (
         <div className="notice info banner">
@@ -245,6 +265,8 @@ export default function App() {
                   marketLabel={marketLabel}
                   revealed={revealed}
                   period={store.chartPeriod}
+                  livePrice={store.mode === 'live' ? store.livePrice : null}
+                  live24h={store.mode === 'live' ? store.live24h : null}
                 />
 
                 <ChartPanel
@@ -270,6 +292,7 @@ export default function App() {
                   currentPeriod={store.chartPeriod}
                 />
 
+                {store.mode === 'replay' && (
                 <ReplayControls
                   playing={store.playing}
                   speed={store.speed}
@@ -286,7 +309,9 @@ export default function App() {
                   onSpeed={store.setSpeed}
                   onReset={store.resetReplay}
                 />
+                )}
 
+                {store.mode === 'replay' && (
                 <div className="jump-row">
                   <StartTimePicker
                     bars1h={store.bars1h}
@@ -309,6 +334,7 @@ export default function App() {
                   <span className="muted">根（1h）</span>
                   <span className="muted">· 现价 {fmtPrice(currentPrice)}</span>
                 </div>
+                )}
               </>
             )}
           </section>
@@ -370,6 +396,8 @@ export default function App() {
               </button>
             )}
 
+            <AlertPanel symbol={store.symbol} market={store.market} />
+
             <AccountPanel
               equity={store.equity}
               equityStart={store.equityStart}
@@ -416,6 +444,12 @@ export default function App() {
         </main>
       )}
 
+      {view === 'bot' && (
+        <BotView
+          onShowMarkers={(m) => { setBacktestMarkers(m); setView('practice'); }}
+        />
+      )}
+
       {view === 'setups' && (
         <main className="full-view">
           <SetupLibrary setups={store.setups} onChanged={() => void store.bootstrap()} />
@@ -433,6 +467,23 @@ export default function App() {
       {authOpen && !store.user && (
         <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setAuthOpen(false)}>
           <AuthPanel onClose={() => setAuthOpen(false)} />
+        </div>
+      )}
+
+      {store.alertFired && (
+        <div className="modal-backdrop" onClick={() => store.dismissAlertFired()}>
+          <div className="alert-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="am-title">⏰ 价格提醒触发</div>
+            <div className="am-body">
+              <strong>{store.alertFired.symbol}</strong>{' '}
+              {store.alertFired.kind === 'price_above' ? '已到达 ≥' : '已跌破 ≤'}{' '}
+              <strong>{store.alertFired.price}</strong>
+              {store.alertFired.note && <div className="muted">{store.alertFired.note}</div>}
+            </div>
+            <button className="btn primary" onClick={() => store.dismissAlertFired()}>
+              知道了
+            </button>
+          </div>
         </div>
       )}
     </div>
