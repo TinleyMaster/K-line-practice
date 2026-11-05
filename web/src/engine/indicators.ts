@@ -12,8 +12,9 @@
  *   - 不传 paneId             → 自动创建一个新的独立副图 pane
  */
 
-// 自定义指标注册（副作用导入）：趋势结构 TRENDSTRUCT
+// 自定义指标注册（副作用导入）：趋势结构 TRENDSTRUCT / PINBAR / SUPERTREND
 import './trendIndicator';
+import './superTrend';
 
 export type IndicatorGroup = 'overlay' | 'pane';
 
@@ -48,6 +49,7 @@ const OVERLAY: IndicatorSpec[] = [
   { name: 'BIAS', label: 'BIAS 乖离率', group: 'overlay', calcParams: [6, 12, 24], defaultOn: false },
   { name: 'TRENDSTRUCT', label: '趋势结构 (EMA + 摆动高低点)', group: 'overlay', calcParams: [40, 15, 12, 26, 9, 21, 55, 144], defaultOn: false },
   { name: 'PINBAR', label: 'Pinbar 拐点形态', group: 'overlay', calcParams: [2, 0.33, 0.6, 0.01], defaultOn: false },
+  { name: 'SUPERTREND', label: 'Supertrend 趋势线', group: 'overlay', calcParams: [10, 3], defaultOn: false },
 ];
 
 /**
