@@ -49,9 +49,43 @@ export function detectPinbars(bars: Bar[], p: PinbarParams): RawSignal[] {
     dir[i] = lowerWick > upperWick ? 1 : -1;
   }
 
-  // 第二遍：ZigZag 拐点检测（反转确认）
-  const isHigh = new Array<boolean>(n).fill(false);
-  const isLow = new Array<boolean>(n).fill(false);
+  // 第二遍：ZigZag 拐点检测。**关键：信号在「拐点被反转确认的当下」才发出，
+  // 且策略只在确认根 j 的下一根开盘（j+1）才入场**——这样在入场那一刻，
+  // 拐点与它的确认都已是过去数据，绝不使用未来信息（无未来函数 / look-ahead）。
+  // 末端未被反转确认的拐点在序列结束时不会发出信号（右边缘天然不可知）。
+  const out: RawSignal[] = [];
+
+  const emitConfirmed = (
+    side: 'bull' | 'bear',
+    pivotI: number,
+    confirmI: number,
+  ) => {
+    // 只有拐点根本身是对应方向的 pinbar 才发信号
+    if (side === 'bull' && dir[pivotI] === 1) {
+      out.push({
+        index: pivotI,
+        confirmIndex: confirmI,
+        time: bars[pivotI].time,
+        side: 'bull',
+        price: bars[pivotI].close,
+        module: 'pinbar',
+        strength: 1,
+        stopPrice: lowArr[pivotI],
+      });
+    } else if (side === 'bear' && dir[pivotI] === -1) {
+      out.push({
+        index: pivotI,
+        confirmIndex: confirmI,
+        time: bars[pivotI].time,
+        side: 'bear',
+        price: bars[pivotI].close,
+        module: 'pinbar',
+        strength: 1,
+        stopPrice: highArr[pivotI],
+      });
+    }
+  };
+
   if (n > 0) {
     let dir0 = 0; // 0 未定 / 1 上行腿(跟踪高点) / -1 下行腿(跟踪低点)
     let extHigh = highArr[0];
@@ -61,12 +95,12 @@ export function detectPinbars(bars: Bar[], p: PinbarParams): RawSignal[] {
     for (let i = 1; i < n; i++) {
       if (dir0 === 0) {
         if (highArr[i] >= extLow * (1 + p.revPct)) {
-          isLow[extLowI] = true;
+          emitConfirmed('bull', extLowI, i); // 低点 extLowI 在此根被反转确认
           dir0 = 1;
           extHigh = highArr[i];
           extHighI = i;
         } else if (lowArr[i] <= extHigh * (1 - p.revPct)) {
-          isHigh[extHighI] = true;
+          emitConfirmed('bear', extHighI, i); // 高点 extHighI 在此根被反转确认
           dir0 = -1;
           extLow = lowArr[i];
           extLowI = i;
@@ -86,7 +120,7 @@ export function detectPinbars(bars: Bar[], p: PinbarParams): RawSignal[] {
           extHighI = i;
         }
         if (lowArr[i] <= extHigh * (1 - p.revPct)) {
-          isHigh[extHighI] = true;
+          emitConfirmed('bear', extHighI, i); // 高点被确认
           dir0 = -1;
           extLow = lowArr[i];
           extLowI = i;
@@ -97,7 +131,7 @@ export function detectPinbars(bars: Bar[], p: PinbarParams): RawSignal[] {
           extLowI = i;
         }
         if (highArr[i] >= extLow * (1 + p.revPct)) {
-          isLow[extLowI] = true;
+          emitConfirmed('bull', extLowI, i); // 低点被确认
           dir0 = 1;
           extHigh = highArr[i];
           extHighI = i;
@@ -106,31 +140,6 @@ export function detectPinbars(bars: Bar[], p: PinbarParams): RawSignal[] {
     }
   }
 
-  // 只在确认的拐点处发出信号，并把自然止损位带出去
-  const out: RawSignal[] = [];
-  for (let i = 0; i < n; i++) {
-    if (dir[i] === 1 && isLow[i]) {
-      out.push({
-        index: i,
-        time: bars[i].time,
-        side: 'bull',
-        price: bars[i].close,
-        module: 'pinbar',
-        strength: 1,
-        stopPrice: lowArr[i],
-      });
-    } else if (dir[i] === -1 && isHigh[i]) {
-      out.push({
-        index: i,
-        time: bars[i].time,
-        side: 'bear',
-        price: bars[i].close,
-        module: 'pinbar',
-        strength: 1,
-        stopPrice: highArr[i],
-      });
-    }
-  }
   return out;
 }
 

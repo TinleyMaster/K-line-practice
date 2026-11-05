@@ -44,14 +44,17 @@ export const pinbarTrendStrategy: Strategy = {
 
     const intents: TradeIntent[] = [];
     for (const s of raw) {
+      // 决策根 = 拐点被「反转确认」的根（j）；入场只发生在 j+1 开盘，确保不使用未来数据
+      const decIdx = s.confirmIndex;
+
       // 顺势过滤：趋势明确且与信号同向才入场（bias=0 表示均线未就绪，不交易）
       if (params.trendEnabled && params.requireTrendAligned) {
-        if (s.side === 'bull' && bias[s.index] !== 1) continue; // 只在多头势接多
-        if (s.side === 'bear' && bias[s.index] !== -1) continue; // 只在空头势接空
+        if (s.side === 'bull' && bias[decIdx] !== 1) continue; // 只在多头势接多
+        if (s.side === 'bear' && bias[decIdx] !== -1) continue; // 只在空头势接空
       }
 
-      // 入场根 = 信号根下一根开盘（看到反转确认后进场）
-      const entryIdx = s.index + 1;
+      // 入场根 = 确认根下一根开盘（拐点 + 反转确认都已是过去，零未来函数）
+      const entryIdx = decIdx + 1;
       if (entryIdx >= n) continue;
       const entryBar = bars[entryIdx];
       const entryPrice = entryBar.open;

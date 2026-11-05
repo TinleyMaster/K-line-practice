@@ -14,7 +14,8 @@ export interface SeriesContext {
 
 /** 原始信号事件（未经过滤 / 决策） */
 export interface RawSignal {
-  index: number; // 该信号在 bars 中的下标
+  index: number; // 拐点根在 bars 中的下标（pinbar 所在根）
+  confirmIndex: number; // 该拐点被「反转确认」的根下标（j）；入场只发生在 j+1，杜绝未来函数
   time: number; // bars[index].time（epoch ms）
   side: 'bull' | 'bear'; // bull=看多反转 / bear=看空反转
   price: number; // 参考价（信号根收盘或鼻线价）
