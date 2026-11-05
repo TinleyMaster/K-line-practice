@@ -71,6 +71,11 @@ export interface Bar {
   /** 仅 4h 派生柱带上：组成它的 1h 根数 */
   constituents?: number;
   /**
+   * 资金费率（可选，仅导数微观结构信号用）。由回测/实时数据接入层按
+   * `fundingTime ≤ bar.time` 的「最近一笔」填充，保证信号只用 ≤ 入场根的数据（零未来函数）。
+   */
+  fundingRate?: number;
+  /**
    * 数据来源标记。链上美股低流动性时段没有成交，会做前向填充补成哑线，
    * 这些行标记为 `geckoterminal_ffill`，前端据此提示用户。
    */

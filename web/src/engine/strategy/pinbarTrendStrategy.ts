@@ -129,7 +129,7 @@ export const pinbarTrendStrategy: Strategy = {
     // 收集启用的原始信号
     const raw: RawSignal[] = [];
     for (const mod of SIGNAL_MODULES) {
-      if (params.signals[mod.name]) raw.push(...mod.detect(bars, ctx));
+      if (params.signals[mod.name]) raw.push(...mod.detect(bars, ctx, params));
     }
 
     // ATR（用于 ATR 止损）
@@ -169,7 +169,7 @@ export const regimeSwitchStrategy: Strategy = {
     // 收集启用的原始信号
     const raw: RawSignal[] = [];
     for (const mod of SIGNAL_MODULES) {
-      if (params.signals[mod.name]) raw.push(...mod.detect(bars, ctx));
+      if (params.signals[mod.name]) raw.push(...mod.detect(bars, ctx, params));
     }
 
     const atrArr = params.stopType === 'atr' ? atr(bars, params.atrPeriod) : [];

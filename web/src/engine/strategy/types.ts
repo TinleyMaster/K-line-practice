@@ -33,7 +33,7 @@ export interface SignalModule {
   name: string;
   label: string;
   description: string;
-  detect(bars: Bar[], ctx: SeriesContext): RawSignal[];
+  detect(bars: Bar[], ctx: SeriesContext, params: StrategyParams): RawSignal[];
 }
 
 /* ============================================================
@@ -66,6 +66,12 @@ export interface StrategyParams {
   regimeHi: number;
   /** 效率比 ≤ 此值判为震荡市 */
   regimeLo: number;
+  /** 资金费率信号：滚动 z 分数窗口（根，4h） */
+  fundingWindow: number;
+  /** 资金费率信号：触发阈值（|z| ≥ 此值才发信号） */
+  fundingZ: number;
+  /** 资金费率信号：方向逻辑。contrarian=极端多头费率→做空（反向）；carry=高费率→做多（收租/动量） */
+  fundingMode: 'contrarian' | 'carry';
   /** 单笔风险占权益比（%） */
   riskPct: number;
   /** 起始权益（U） */

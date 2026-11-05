@@ -25,7 +25,7 @@ interface Props {
 type Mode = 'single' | 'batch' | 'sweep';
 
 const DEFAULT_PARAMS: StrategyParams = {
-  signals: { pinbar: false, trend_pullback: true, mean_reversion: true },
+  signals: { pinbar: false, trend_pullback: true, mean_reversion: true, funding_extreme: false },
   trendEnabled: true,
   trendPeriod: 60,
   requireTrendAligned: true,
@@ -38,6 +38,9 @@ const DEFAULT_PARAMS: StrategyParams = {
   regimeWindow: 30,
   regimeHi: 0.4,
   regimeLo: 0.2,
+  fundingWindow: 60,
+  fundingZ: 2.5,
+  fundingMode: 'contrarian',
   riskPct: 1,
   startEquity: 10000,
   feeRate: 0.0004,
@@ -405,6 +408,40 @@ export function BotView({ onShowMarkers }: Props) {
                 step="0.05"
                 value={params.regimeLo}
                 onChange={(e) => patch({ regimeLo: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+
+          <h3>资金费率信号（更根本的 edge）</h3>
+          <div className="bot-row">
+            <label>
+              逻辑
+              <select
+                className="input"
+                value={params.fundingMode}
+                onChange={(e) => patch({ fundingMode: e.target.value as StrategyParams['fundingMode'] })}
+              >
+                <option value="contrarian">极端反向（crowd 站错边）</option>
+                <option value="carry">收租（顺势收 funding）</option>
+              </select>
+            </label>
+            <label>
+              z 窗口
+              <input
+                className="input num"
+                type="number"
+                value={params.fundingWindow}
+                onChange={(e) => patch({ fundingWindow: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              触发 |z| ≥
+              <input
+                className="input num"
+                type="number"
+                step="0.1"
+                value={params.fundingZ}
+                onChange={(e) => patch({ fundingZ: Number(e.target.value) })}
               />
             </label>
           </div>

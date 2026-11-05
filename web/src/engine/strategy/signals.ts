@@ -1,6 +1,6 @@
 import type { Bar } from '../../types';
 import { atr, sma } from './indicators';
-import type { RawSignal, SeriesContext, SignalModule } from './types';
+import type { RawSignal, SeriesContext, SignalModule, StrategyParams } from './types';
 
 /**
  * 因果摆动点：返回每个严格的摆动低/高点，及其「确认根」(j+W)。
@@ -281,8 +281,111 @@ export const meanReversionSignal: SignalModule = {
   },
 };
 
+/**
+ * 资金费率极端反向（或收租）信号 —— 比价格形态「更根本」的 edge。
+ *
+ * 逻辑：资金费率是「crowd 站在哪一边」的直接度量——费率越高，越多人挤在多头（longs 付费），
+ * 越拥挤；费率越低（甚至为负），越多人挤在空头。这是一种持仓结构 / 情绪极端，而非价格形态。
+ *   - contrarian（反向）：|z| ≥ fundingZ 的极端费率 → 赌 crowd 被 squeeze，反向开仓
+ *     （正费率→做空，负费率→做多）。这是经典的「散户在极端处站错边」假设。
+ *   - carry（收租/动量）：正费率→做多（顺势收 funding + 追动量），负费率→做空。
+ *
+ * 因果性：每个 bar 的 fundingRate 由数据层按「fundingTime ≤ bar.time 的最近一笔」填充，
+ * 信号只用 ≤ 决策根 i 的费率（费率本身早于或等于该根），z 分数滚动窗口 [i-w, i] 也全是过去，
+ * 入场在 i+1 开盘——零未来函数。止损用决策根的 ATR（自带，独立于全局 stopType）。
+ */
+export function detectFundingExtreme(
+  bars: Bar[],
+  p: { window: number; z: number; mode: 'contrarian' | 'carry'; atrPeriod: number; atrMult: number },
+): RawSignal[] {
+  const n = bars.length;
+  const w = Math.max(2, Math.floor(p.window));
+  const a = atr(bars, p.atrPeriod);
+  const out: RawSignal[] = [];
+
+  // 滚动均值 / 标准差（对 fundingRate 序列，因果：只用 ≤ i 的值）
+  let runSum = 0;
+  let runSumSq = 0;
+  for (let i = 0; i < n; i++) {
+    const fr = bars[i].fundingRate;
+    if (fr == null || !Number.isFinite(fr)) {
+      // 断点：重置滚动窗口，避免把缺失当 0 计入
+      runSum = 0;
+      runSumSq = 0;
+      continue;
+    }
+    runSum += fr;
+    runSumSq += fr * fr;
+    if (i < w - 1) continue; // 窗口未填满
+    // 滑出窗口最老的一笔（若有）
+    if (i >= w) {
+      const old = bars[i - w].fundingRate;
+      if (old != null && Number.isFinite(old)) {
+        runSum -= old;
+        runSumSq -= old * old;
+      }
+    }
+    const cnt = Math.min(i + 1, w);
+    const mean = runSum / cnt;
+    const variance = Math.max(0, runSumSq / cnt - mean * mean);
+    const std = Math.sqrt(variance);
+    const atrV = a[i];
+    if (std <= 0 || !Number.isFinite(atrV) || atrV <= 0) continue;
+
+    const z = (fr - mean) / std;
+    const extreme = Math.abs(z) >= p.z;
+    if (!extreme) continue;
+
+    const atrStop = p.atrMult * atrV;
+    let side: 'bull' | 'bear';
+    if (p.mode === 'contrarian') {
+      // 正费率（crowd 多）→ 反向做空；负费率 → 反向做多
+      side = z > 0 ? 'bear' : 'bull';
+    } else {
+      // 收租：正费率→做多；负费率→做空
+      side = z > 0 ? 'bull' : 'bear';
+    }
+
+    out.push({
+      index: i,
+      confirmIndex: i,
+      time: bars[i].time,
+      side,
+      price: bars[i].close,
+      module: 'funding_extreme',
+      strength: Math.min(1, Math.abs(z) / (p.z * 2)),
+      // 自带 ATR 止损（逆势单需给足缓冲）：决策根收盘 ± atrStop
+      stopPrice: side === 'bull' ? bars[i].close - atrStop : bars[i].close + atrStop,
+      againstTrend: true, // 情绪反向/收租都跳过「仅顺势」过滤，且在 regime 下归为 reversion 类
+    });
+  }
+  return out;
+}
+
+/** 资金费率极端信号模块 */
+export const fundingExtremeSignal: SignalModule = {
+  name: 'funding_extreme',
+  label: '资金费率极端',
+  description:
+    'crowd 持仓极端（资金费率 z 分数越界）反向开仓或收租。比价格形态更根本：直接度量多空拥挤度。',
+  detect(bars: Bar[], _ctx: SeriesContext, params: StrategyParams): RawSignal[] {
+    return detectFundingExtreme(bars, {
+      window: params.fundingWindow,
+      z: params.fundingZ,
+      mode: params.fundingMode,
+      atrPeriod: params.atrPeriod,
+      atrMult: params.atrMult,
+    });
+  },
+};
+
 /** 注册表：所有可插拔信号模块。后续加 MA 金叉、布林收窄等，直接 push 即可。 */
-export const SIGNAL_MODULES: SignalModule[] = [pinbarSignal, trendPullbackSignal, meanReversionSignal];
+export const SIGNAL_MODULES: SignalModule[] = [
+  pinbarSignal,
+  trendPullbackSignal,
+  meanReversionSignal,
+  fundingExtremeSignal,
+];
 
 export function getSignalModule(name: string): SignalModule | undefined {
   return SIGNAL_MODULES.find((m) => m.name === name);
