@@ -1,25 +1,29 @@
 import type { Bar } from '../../types';
 import type { RawSignal, SeriesContext, SignalModule } from './types';
 
-/** Pinbar 检测参数（与 klinecharts 版的 calcParams 一一对应） */
+/**
+ * Pinbar 检测参数。
+ * swingWindow（默认 5）是「因果摆动确认」的窗口半径：一根 K 线要被确认是摆动拐点，
+ * 必须等它之后 swingWindow 根内不再出现更极端的价（即它在 [j-W, j+W] 仍是极值）。
+ * 这保证**确认只使用过去数据**——拐点 j 在 j+W 根才被"声明"，入场在 j+W+1，零未来函数。
+ */
 export interface PinbarParams {
   noseToBody: number; // 鼻线 ≥ noseToBody × 实体
   bodyToRange: number; // 实体 ≤ bodyToRange × 区间
   noseToRange: number; // 鼻线 ≥ noseToRange × 区间
-  revPct: number; // ZigZag 反转确认阈值（价格从极值反向运行 ≥ revPct 才确认拐点）
+  swingWindow: number; // 摆动确认窗口半径（因果：j 在 [j-W, j+W] 仍为极值才确认）
 }
 
 /**
- * 纯 TS 版 Pinbar 拐点检测（与 trendIndicator.ts 的 PINBAR 指标同算法，但脱离 klinecharts）。
+ * 纯 TS 版 Pinbar 拐点检测（脱离 klinecharts，供自动交易引擎使用）。
  *
  * 两步：
  *   1) 逐根判定 pinbar 候选方向（长下影=看涨候选 / 长上影=看跌候选，实体过大或鼻线不够长则否）；
- *   2) ZigZag 反转确认：只有当价格从某根极值反向运行 ≥ revPct 才确认其为拐点
- *      （摆动高点 / 摆动低点）。只有被确认的拐点处的对应方向 pinbar 才发出信号——
- *      趋势半山腰的回调、震荡区间内部的小波动都不会形成信号，只认真转折。
- *
- * ⚠️ 拐点需"反转确认"后才出现（滞后若干根）；引擎在信号根「下一根开盘」入场，
- * 等价于"看到反转确认后再进场"，不会泄漏未来。
+ *   2) **因果摆动确认**：一根 K 线 j 要成为摆动拐点，必须在它之后 W 根内（[j-W, j+W] 窗口）
+ *      仍是区间极值——窗口内的极值要么就是 j 本身，要么更早/更晚都不会更极端。
+ *      我们在「确认根 i = j+W」才声明这个拐点（此时窗口 [i-2W, i] 全在 j+W 之前，纯过去数据），
+ *      策略在 i+1 = j+W+1 开盘入场。因此**任何入场决策都不依赖未来**，无未来函数。
+ *      只有被确认的拐点处的对应方向 pinbar 才发信号——趋势半山腰、震荡内部的 K 线不会形成信号。
  */
 export function detectPinbars(bars: Bar[], p: PinbarParams): RawSignal[] {
   const n = bars.length;
@@ -49,94 +53,44 @@ export function detectPinbars(bars: Bar[], p: PinbarParams): RawSignal[] {
     dir[i] = lowerWick > upperWick ? 1 : -1;
   }
 
-  // 第二遍：ZigZag 拐点检测。**关键：信号在「拐点被反转确认的当下」才发出，
-  // 且策略只在确认根 j 的下一根开盘（j+1）才入场**——这样在入场那一刻，
-  // 拐点与它的确认都已是过去数据，绝不使用未来信息（无未来函数 / look-ahead）。
-  // 末端未被反转确认的拐点在序列结束时不会发出信号（右边缘天然不可知）。
+  // 第二遍：**因果摆动确认**（无未来函数）。
+  // 站在「确认根 i」回看窗口 [i-2W, i]：若其中点 j = i-W 是严格极值（高低都未被窗口内其他根超越），
+  // 则 j 是一个摆动拐点——且确认只用到了 ≤ i 的数据，入场在 i+1 = j+W+1，纯因果。
+  // 摆动高点只发看跌信号、摆动低点只发看涨信号；方向必须与 pinbar 候选一致才发。
+  const W = Math.max(1, Math.floor(p.swingWindow));
   const out: RawSignal[] = [];
 
-  const emitConfirmed = (
-    side: 'bull' | 'bear',
-    pivotI: number,
-    confirmI: number,
-  ) => {
-    // 只有拐点根本身是对应方向的 pinbar 才发信号
-    if (side === 'bull' && dir[pivotI] === 1) {
-      out.push({
-        index: pivotI,
-        confirmIndex: confirmI,
-        time: bars[pivotI].time,
-        side: 'bull',
-        price: bars[pivotI].close,
-        module: 'pinbar',
-        strength: 1,
-        stopPrice: lowArr[pivotI],
-      });
-    } else if (side === 'bear' && dir[pivotI] === -1) {
-      out.push({
-        index: pivotI,
-        confirmIndex: confirmI,
-        time: bars[pivotI].time,
-        side: 'bear',
-        price: bars[pivotI].close,
-        module: 'pinbar',
-        strength: 1,
-        stopPrice: highArr[pivotI],
-      });
+  for (let i = W; i < n - W; i++) {
+    const j = i - W; // 待确认的拐点候选
+    let isLow = true;
+    let isHigh = true;
+    for (let k = j - W; k <= j + W; k++) {
+      if (k < 0 || k >= n || k === j) continue;
+      if (lowArr[k] <= lowArr[j]) isLow = false; // j 必须严格最低
+      if (highArr[k] >= highArr[j]) isHigh = false; // j 必须严格最高
     }
-  };
-
-  if (n > 0) {
-    let dir0 = 0; // 0 未定 / 1 上行腿(跟踪高点) / -1 下行腿(跟踪低点)
-    let extHigh = highArr[0];
-    let extHighI = 0;
-    let extLow = lowArr[0];
-    let extLowI = 0;
-    for (let i = 1; i < n; i++) {
-      if (dir0 === 0) {
-        if (highArr[i] >= extLow * (1 + p.revPct)) {
-          emitConfirmed('bull', extLowI, i); // 低点 extLowI 在此根被反转确认
-          dir0 = 1;
-          extHigh = highArr[i];
-          extHighI = i;
-        } else if (lowArr[i] <= extHigh * (1 - p.revPct)) {
-          emitConfirmed('bear', extHighI, i); // 高点 extHighI 在此根被反转确认
-          dir0 = -1;
-          extLow = lowArr[i];
-          extLowI = i;
-        } else {
-          if (highArr[i] > extHigh) {
-            extHigh = highArr[i];
-            extHighI = i;
-          }
-          if (lowArr[i] < extLow) {
-            extLow = lowArr[i];
-            extLowI = i;
-          }
-        }
-      } else if (dir0 === 1) {
-        if (highArr[i] > extHigh) {
-          extHigh = highArr[i];
-          extHighI = i;
-        }
-        if (lowArr[i] <= extHigh * (1 - p.revPct)) {
-          emitConfirmed('bear', extHighI, i); // 高点被确认
-          dir0 = -1;
-          extLow = lowArr[i];
-          extLowI = i;
-        }
-      } else {
-        if (lowArr[i] < extLow) {
-          extLow = lowArr[i];
-          extLowI = i;
-        }
-        if (highArr[i] >= extLow * (1 + p.revPct)) {
-          emitConfirmed('bull', extLowI, i); // 低点被确认
-          dir0 = 1;
-          extHigh = highArr[i];
-          extHighI = i;
-        }
-      }
+    if (dir[j] === 1 && isLow) {
+      out.push({
+        index: j,
+        confirmIndex: i,
+        time: bars[j].time,
+        side: 'bull',
+        price: bars[j].close,
+        module: 'pinbar',
+        strength: 1,
+        stopPrice: lowArr[j],
+      });
+    } else if (dir[j] === -1 && isHigh) {
+      out.push({
+        index: j,
+        confirmIndex: i,
+        time: bars[j].time,
+        side: 'bear',
+        price: bars[j].close,
+        module: 'pinbar',
+        strength: 1,
+        stopPrice: highArr[j],
+      });
     }
   }
 
@@ -153,7 +107,7 @@ export const pinbarSignal: SignalModule = {
       noseToBody: 2,
       bodyToRange: 0.33,
       noseToRange: 0.6,
-      revPct: 0.01,
+      swingWindow: 5,
     });
   },
 };
