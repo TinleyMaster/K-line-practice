@@ -63,6 +63,7 @@ export function JournalModal({ trade, onSave, onSkip }: Props) {
   const exitText = {
     stop: '止损离场',
     target: '到达目标',
+    trail: '趋势翻转离场',
     manual: '手动平仓',
     session_end: '练习结束',
   }[trade.exitReason];

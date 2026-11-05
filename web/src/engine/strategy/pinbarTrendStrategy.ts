@@ -79,12 +79,14 @@ export const pinbarTrendStrategy: Strategy = {
       const dist = Math.abs(entryPrice - stopLoss);
       if (dist <= 0) continue;
 
+      // 出场方式：trail=趋势翻转才离场（让利润奔跑），此时不设固定止盈；
+      // target=固定 R 止盈。二者都保留初始止损来定义 R。
       const takeProfit =
-        params.takeProfitR > 0
-          ? s.side === 'bull'
+        params.exitType === 'trail' || params.takeProfitR <= 0
+          ? null
+          : s.side === 'bull'
             ? entryPrice + params.takeProfitR * dist
-            : entryPrice - params.takeProfitR * dist
-          : null;
+            : entryPrice - params.takeProfitR * dist;
 
       intents.push({
         index: entryIdx,

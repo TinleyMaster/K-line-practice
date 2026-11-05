@@ -2,6 +2,35 @@ import type { Bar } from '../../types';
 import type { RawSignal, SeriesContext, SignalModule } from './types';
 
 /**
+ * 因果摆动点：返回每个严格的摆动低/高点，及其「确认根」(j+W)。
+ * 站在确认根 i 回看窗口 [i-2W, i]，中点 j=i-W 若严格是极值则确认——确认只用 ≤ i 数据，零未来函数。
+ */
+export function causalSwings(
+  bars: Bar[],
+  W: number,
+): { lows: { index: number; confirmIndex: number }[]; highs: { index: number; confirmIndex: number }[] } {
+  const n = bars.length;
+  const lowArr = bars.map((b) => b.low);
+  const highArr = bars.map((b) => b.high);
+  const Ww = Math.max(1, Math.floor(W));
+  const lows: { index: number; confirmIndex: number }[] = [];
+  const highs: { index: number; confirmIndex: number }[] = [];
+  for (let i = Ww; i < n - Ww; i++) {
+    const j = i - Ww;
+    let isLow = true;
+    let isHigh = true;
+    for (let k = j - Ww; k <= j + Ww; k++) {
+      if (k < 0 || k >= n || k === j) continue;
+      if (lowArr[k] <= lowArr[j]) isLow = false; // j 必须严格最低
+      if (highArr[k] >= highArr[j]) isHigh = false; // j 必须严格最高
+    }
+    if (isLow) lows.push({ index: j, confirmIndex: i });
+    if (isHigh) highs.push({ index: j, confirmIndex: i });
+  }
+  return { lows, highs };
+}
+
+/**
  * Pinbar 检测参数。
  * swingWindow（默认 5）是「因果摆动确认」的窗口半径：一根 K 线要被确认是摆动拐点，
  * 必须等它之后 swingWindow 根内不再出现更极端的价（即它在 [j-W, j+W] 仍是极值）。
@@ -112,8 +141,53 @@ export const pinbarSignal: SignalModule = {
   },
 };
 
+/**
+ * 趋势回调信号：在摆动低点（高点）处顺势接单——本质是"回调入场"的 continuation 套路。
+ * 本身不内嵌趋势判断，方向由策略的「仅顺势」过滤把关（多头势只接摆动低点多、空头势只接摆动高点空），
+ * 因此与策略共用同一套 trendPeriod/MA，不会口径漂移。止损取摆动极值外推缓冲。
+ */
+export function detectTrendPullback(bars: Bar[], p: { swingWindow: number }): RawSignal[] {
+  const { lows, highs } = causalSwings(bars, p.swingWindow);
+  const out: RawSignal[] = [];
+  for (const lo of lows) {
+    out.push({
+      index: lo.index,
+      confirmIndex: lo.confirmIndex,
+      time: bars[lo.index].time,
+      side: 'bull',
+      price: bars[lo.index].close,
+      module: 'trend_pullback',
+      strength: 1,
+      stopPrice: bars[lo.index].low,
+    });
+  }
+  for (const hi of highs) {
+    out.push({
+      index: hi.index,
+      confirmIndex: hi.confirmIndex,
+      time: bars[hi.index].time,
+      side: 'bear',
+      price: bars[hi.index].close,
+      module: 'trend_pullback',
+      strength: 1,
+      stopPrice: bars[hi.index].high,
+    });
+  }
+  return out;
+}
+
+/** 趋势回调信号模块 */
+export const trendPullbackSignal: SignalModule = {
+  name: 'trend_pullback',
+  label: '趋势回调',
+  description: '在摆动低点/高点处顺势接单（回调入场）。配合「趋势翻转离场」让利润随趋势奔跑。',
+  detect(bars: Bar[], _ctx: SeriesContext): RawSignal[] {
+    return detectTrendPullback(bars, { swingWindow: 5 });
+  },
+};
+
 /** 注册表：所有可插拔信号模块。后续加 MA 金叉、布林收窄等，直接 push 即可。 */
-export const SIGNAL_MODULES: SignalModule[] = [pinbarSignal];
+export const SIGNAL_MODULES: SignalModule[] = [pinbarSignal, trendPullbackSignal];
 
 export function getSignalModule(name: string): SignalModule | undefined {
   return SIGNAL_MODULES.find((m) => m.name === name);

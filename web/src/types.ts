@@ -129,7 +129,7 @@ export interface OpenTrade {
 export interface ClosedTrade extends OpenTrade {
   exitTime: number;
   exitPrice: number;
-  exitReason: 'stop' | 'target' | 'manual' | 'session_end';
+  exitReason: 'stop' | 'target' | 'trail' | 'manual' | 'session_end';
   pnl: number;
   rMultiple: number;
 }
@@ -227,6 +227,31 @@ export interface JournalEntry {
   /** 跳过的复盘（关掉了弹窗没写内容）—— 可稍后补写 */
   skipped: boolean;
   createdAt: string;
+}
+
+/* ===== 实时行情（阶段一 · 实时盯盘） ===== */
+
+/** 24h 行情快照（来自币安 @ticker） */
+export interface Live24h {
+  last: number;
+  open: number;
+  high: number;
+  low: number;
+  vol: number;
+  quoteVol: number;
+  changePct: number;
+}
+
+/** 价格提醒（个人偏好，存 localStorage，不进练习成绩库） */
+export interface LiveAlert {
+  id: string;
+  symbol: string;
+  market: Market;
+  kind: 'price_above' | 'price_below';
+  price: number;
+  note: string;
+  fired: boolean;
+  createdAt: number;
 }
 
 export interface StatsResponse {

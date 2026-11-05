@@ -1,5 +1,6 @@
 import type { Bar, OpenTrade, TradeSide } from '../../types';
 import { checkExit, closeTrade, computeQty, riskAmount } from '../trading';
+import { sma, trendBias } from './indicators';
 import type {
   BacktestResult,
   BacktestStats,
@@ -80,6 +81,15 @@ export function runBacktest(
   const intents = strategy.detectIntents(bars, params, ctx);
   const n = bars.length;
 
+  // 趋势翻转出场（trail）预计算偏置数组：仅在 exitType==='trail' 时需要。
+  // 入场后，当 bias[i] 翻向相反方向（多: ≤0 / 空: ≥0）以当根收盘离场——让利润随趋势奔跑。
+  // 偏置完全由 ≤ i 的数据（收盘价与均线）决定，零未来函数。
+  let biasArr: number[] | null = null;
+  if (params.exitType === 'trail') {
+    const closes = bars.map((b) => b.close);
+    biasArr = trendBias(closes, sma(closes, params.trendPeriod));
+  }
+
   let equity = params.startEquity;
   let peakEquity = params.startEquity;
   const trades: SimTrade[] = [];
@@ -92,10 +102,10 @@ export function runBacktest(
   for (let i = 0; i < n; i++) {
     const bar = bars[i];
 
-    // 1) 检查现有持仓出场（止损 / 止盈）
+    // 1) 检查现有持仓出场（止损 / 止盈 / 趋势翻转）
     for (let k = active.length - 1; k >= 0; k--) {
       const pos = active[k];
-      // 直接用 trading.ts 的 checkExit 判断这根 K 是否触发出场
+      // 直接用 trading.ts 的 checkExit 判断这根 K 是否触发出场（止损优先，保守）
       const exit = checkExit(buildOpenTrade(ctx.symbol, pos, params.feeRate, params.slippageBps), bar);
       if (exit) {
         const rawExit = applySlippage(exit.price, pos.side, params.slippageBps, false);
@@ -129,6 +139,45 @@ export function runBacktest(
         });
         equityCurve.push({ time: bar.time, equity });
         active.splice(k, 1);
+        continue;
+      }
+
+      // 趋势翻转出场（trail）：偏置翻向相反方向时，以当根收盘离场（让利润奔跑）
+      if (params.exitType === 'trail' && biasArr) {
+        const b = biasArr[i];
+        const flip = pos.side === 'long' ? b <= 0 : b >= 0;
+        if (flip) {
+          const rawExit = applySlippage(bar.close, pos.side, params.slippageBps, false);
+          const open = buildOpenTrade(ctx.symbol, pos, params.feeRate, params.slippageBps);
+          const closed = closeTrade(open, bar.time, rawExit, 'trail');
+          const fee = (pos.entryPrice + rawExit) * pos.qty * params.feeRate;
+          const pnlNet = closed.pnl - fee;
+          const rNet = pos.risk > 0 ? pnlNet / pos.risk : 0;
+          equity += pnlNet;
+          peakEquity = Math.max(peakEquity, equity);
+          trades.push({
+            id: `sim-${trades.length}`,
+            symbol: ctx.symbol,
+            side: pos.side,
+            signal: pos.signal,
+            entryIndex: pos.entryIndex,
+            entryTime: pos.entryTime,
+            entryPrice: pos.entryPrice,
+            stopLoss: pos.stopLoss,
+            takeProfit: pos.takeProfit,
+            exitIndex: i,
+            exitTime: bar.time,
+            exitPrice: rawExit,
+            exitReason: 'trail',
+            qty: pos.qty,
+            riskAmount: pos.risk,
+            pnl: pnlNet,
+            rMultiple: rNet,
+            equityAfter: equity,
+          });
+          equityCurve.push({ time: bar.time, equity });
+          active.splice(k, 1);
+        }
       }
     }
 

@@ -25,7 +25,7 @@ interface Props {
 type Mode = 'single' | 'batch' | 'sweep';
 
 const DEFAULT_PARAMS: StrategyParams = {
-  signals: { pinbar: true },
+  signals: { pinbar: false, trend_pullback: true },
   trendEnabled: true,
   trendPeriod: 60,
   requireTrendAligned: true,
@@ -33,6 +33,7 @@ const DEFAULT_PARAMS: StrategyParams = {
   atrPeriod: 14,
   atrMult: 2,
   takeProfitR: 2,
+  exitType: 'trail',
   riskPct: 1,
   maxConcurrent: 1,
   startEquity: 10000,
@@ -390,8 +391,20 @@ export function BotView({ onShowMarkers }: Props) {
                 type="number"
                 step="0.5"
                 value={params.takeProfitR}
+                disabled={params.exitType === 'trail'}
                 onChange={(e) => patch({ takeProfitR: Number(e.target.value) })}
               />
+            </label>
+            <label>
+              出场方式
+              <select
+                className="input"
+                value={params.exitType}
+                onChange={(e) => patch({ exitType: e.target.value as StrategyParams['exitType'] })}
+              >
+                <option value="target">固定 R 止盈</option>
+                <option value="trail">趋势翻转离场（让利润奔跑）</option>
+              </select>
             </label>
           </div>
 

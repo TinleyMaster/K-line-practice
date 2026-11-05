@@ -52,6 +52,8 @@ export interface StrategyParams {
   atrMult: number;
   /** 止盈倍数（R）：target = entry ± takeProfitR × 风险距离 */
   takeProfitR: number;
+  /** 出场方式：target=固定 R 止盈（震荡/反转适用）；trail=趋势翻转才离场（让利润奔跑，趋势跟踪适用） */
+  exitType: 'target' | 'trail';
   /** 单笔风险占权益比（%） */
   riskPct: number;
   /** 同时持仓上限（通常 1） */
@@ -103,7 +105,7 @@ export interface SimTrade {
   exitIndex: number;
   exitTime: number;
   exitPrice: number;
-  exitReason: 'stop' | 'target' | 'session_end';
+  exitReason: 'stop' | 'target' | 'trail' | 'session_end';
   qty: number;
   riskAmount: number;
   pnl: number;
