@@ -6,9 +6,14 @@ import {
   getStrategy,
   pinbarTrendStrategy,
   runBacktest,
+  runMultiBacktest,
+  sweepParams,
   SIGNAL_MODULES,
   type BacktestResult,
+  type BacktestStats,
+  type MultiResult,
   type StrategyParams,
+  type SweepRow,
 } from '../engine/strategy';
 
 interface Props {
@@ -16,6 +21,8 @@ interface Props {
     markers: { time: number; price: number; side: 'long' | 'short'; kind: 'entry' | 'exit' }[],
   ) => void;
 }
+
+type Mode = 'single' | 'batch' | 'sweep';
 
 const DEFAULT_PARAMS: StrategyParams = {
   signals: { pinbar: true },
@@ -66,40 +73,113 @@ function EquityCurve({ curve }: { curve: { time: number; equity: number }[] }) {
   );
 }
 
+function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`bot-stat ${highlight === true ? 'pos' : highlight === false ? 'neg' : ''}`}>
+      <span className="bot-stat-v">{value}</span>
+      <span className="bot-stat-l">{label}</span>
+    </div>
+  );
+}
+
+function StatsGrid({ s }: { s: BacktestStats }) {
+  return (
+    <div className="bot-stats">
+      <Stat label="交易笔数" value={String(s.trades)} />
+      <Stat label="胜率" value={fmtPct(s.winRate)} />
+      <Stat label="总 R" value={fmt(s.totalR)} highlight={s.totalR >= 0} />
+      <Stat label="平均 R" value={fmt(s.avgR)} highlight={s.avgR >= 0} />
+      <Stat label="盈亏比" value={s.profitFactor == null ? '—' : fmt(s.profitFactor)} />
+      <Stat label="最大回撤" value={fmtPct(s.maxDrawdown)} />
+      <Stat label="期望 R" value={fmt(s.expectancy)} highlight={s.expectancy >= 0} />
+      <Stat label="平均持仓" value={`${fmt(s.avgHoldBars, 1)} 根`} />
+    </div>
+  );
+}
+
+async function fetchBars(
+  symbol: string,
+  market: string,
+  period: ChartPeriod,
+): Promise<Bar[] | null> {
+  const resp = await api.klines(symbol, market as Market, 1500);
+  const bars =
+    period === '1h' ? resp.bars1h : period === '4h' ? resp.bars4h : resp.bars15m;
+  return bars && bars.length ? bars : null;
+}
+
 export function BotView({ onShowMarkers }: Props) {
   const store = usePracticeStore();
   const [symbol, setSymbol] = useState(store.symbol || 'BTCUSDT');
   const [market, setMarket] = useState<string>(store.market || 'perp');
   const [period, setPeriod] = useState<ChartPeriod>('1h');
   const [params, setParams] = useState<StrategyParams>(DEFAULT_PARAMS);
+  const [mode, setMode] = useState<Mode>('single');
+
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const [multi, setMulti] = useState<MultiResult | null>(null);
+  const [sweep, setSweep] = useState<SweepRow[] | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ran, setRan] = useState(false);
 
+  // 批量模式：标的列表（逗号分隔）+ 样本外切分开关
+  const [symbolsText, setSymbolsText] = useState('BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT');
+  const [split, setSplit] = useState(true);
+
   const patch = (p: Partial<StrategyParams>) => setParams((s) => ({ ...s, ...p }));
+  const clearResults = () => {
+    setResult(null);
+    setMulti(null);
+    setSweep(null);
+  };
+
+  const strategy = getStrategy(pinbarTrendStrategy.name);
 
   const run = async () => {
     setLoading(true);
     setError(null);
+    clearResults();
     try {
-      const sym = symbol.trim().toUpperCase();
-      if (!sym) throw new Error('请填写标的');
-      const resp = await api.klines(sym, market as Market, 1500);
-      const bars: Bar[] | undefined =
-        period === '1h' ? resp.bars1h : period === '4h' ? resp.bars4h : resp.bars15m;
-      if (!bars || bars.length < params.trendPeriod + 10) {
-        throw new Error(
-          `该标的/周期历史不足（仅有 ${bars?.length ?? 0} 根，需 > ${params.trendPeriod + 10}）。`,
-        );
+      if (mode === 'single' || mode === 'sweep') {
+        const sym = symbol.trim().toUpperCase();
+        if (!sym) throw new Error('请填写标的');
+        const bars = await fetchBars(sym, market, period);
+        if (!bars || bars.length < params.trendPeriod + 10) {
+          throw new Error(`该标的/周期历史不足（仅有 ${bars?.length ?? 0} 根）。`);
+        }
+        const ctx = { symbol: sym, market: market as Market, period };
+        if (mode === 'single') {
+          setResult(runBacktest(bars, strategy, params, ctx));
+        } else {
+          const ranges = [
+            { key: 'takeProfitR' as const, values: [1.5, 2, 3] },
+            { key: 'trendPeriod' as const, values: [40, 60, 90] },
+          ];
+          setSweep(sweepParams(bars, ctx, strategy, params, ranges));
+        }
+      } else {
+        const syms = symbolsText
+          .split(',')
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean);
+        if (syms.length === 0) throw new Error('请填写至少一个标的');
+        const specs = [];
+        for (const sym of syms) {
+          try {
+            const bars = await fetchBars(sym, market, period);
+            if (bars) specs.push({ bars, ctx: { symbol: sym, market: market as Market, period } });
+          } catch {
+            /* 单个失败不影响其他 */
+          }
+        }
+        if (specs.length === 0) throw new Error('没有可用历史（检查市场/周期/网络）。');
+        setMulti(runMultiBacktest(specs, strategy, params, { split }));
       }
-      const strat = getStrategy(pinbarTrendStrategy.name);
-      const res = runBacktest(bars, strat, params, { symbol: sym, market: market as Market, period });
-      setResult(res);
       setRan(true);
     } catch (e) {
       setError((e as Error).message);
-      setResult(null);
     } finally {
       setLoading(false);
     }
@@ -121,49 +201,107 @@ export function BotView({ onShowMarkers }: Props) {
   return (
     <div className="full-view bot-view">
       <div className="bot-head">
-        <h2>自动交易（模拟盘）</h2>
+        <h2>自动交易（模拟盘验证）</h2>
         <span className="muted">
-          代码按「信号 → 决策 → 执行」分层自动开平仓，不夹带情绪。先看模拟闭环，实盘适配层后续接入。
+          代码按「信号 → 决策 → 执行」分层自动开平仓，不夹带情绪。先验证有没有正期望，实盘适配层后续接入。
         </span>
+      </div>
+
+      <div className="bot-modes">
+        <button className={`bot-mode ${mode === 'single' ? 'active' : ''}`} onClick={() => setMode('single')}>
+          单标的回测
+        </button>
+        <button className={`bot-mode ${mode === 'batch' ? 'active' : ''}`} onClick={() => setMode('batch')}>
+          多标的验证
+        </button>
+        <button className={`bot-mode ${mode === 'sweep' ? 'active' : ''}`} onClick={() => setMode('sweep')}>
+          参数扫描
+        </button>
       </div>
 
       {error && <div className="notice error banner">{error}</div>}
 
       <div className="bot-grid">
-        {/* 左：标的选择 + 参数 */}
+        {/* 左：标的选择 + 参数（三种模式共用） */}
         <div className="bot-panel">
           <h3>标的选择</h3>
-          <div className="bot-row">
-            <label>
-              标的
+          {mode === 'batch' ? (
+            <label className="bot-full">
+              标的列表（逗号分隔）
               <input
                 className="input"
-                value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-                placeholder="BTCUSDT"
+                value={symbolsText}
+                onChange={(e) => setSymbolsText(e.target.value)}
+                placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
               />
             </label>
-            <label>
-              市场
-              <select className="input" value={market} onChange={(e) => setMarket(e.target.value)}>
-                <option value="perp">合约</option>
-                <option value="spot">现货</option>
-                <option value="stock">链上美股</option>
-              </select>
-            </label>
-            <label>
-              周期
-              <select
-                className="input"
-                value={period}
-                onChange={(e) => setPeriod(e.target.value as ChartPeriod)}
-              >
-                <option value="1h">1h</option>
-                <option value="4h">4h</option>
-                <option value="15m">15m</option>
-              </select>
-            </label>
-          </div>
+          ) : (
+            <div className="bot-row">
+              <label>
+                标的
+                <input
+                  className="input"
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                  placeholder="BTCUSDT"
+                />
+              </label>
+              <label>
+                市场
+                <select className="input" value={market} onChange={(e) => setMarket(e.target.value)}>
+                  <option value="perp">合约</option>
+                  <option value="spot">现货</option>
+                  <option value="stock">链上美股</option>
+                </select>
+              </label>
+              <label>
+                周期
+                <select
+                  className="input"
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value as ChartPeriod)}
+                >
+                  <option value="1h">1h</option>
+                  <option value="4h">4h</option>
+                  <option value="15m">15m</option>
+                </select>
+              </label>
+            </div>
+          )}
+
+          {mode === 'batch' && (
+            <div className="bot-row" style={{ marginTop: 8 }}>
+              <label>
+                市场
+                <select className="input" value={market} onChange={(e) => setMarket(e.target.value)}>
+                  <option value="perp">合约</option>
+                  <option value="spot">现货</option>
+                  <option value="stock">链上美股</option>
+                </select>
+              </label>
+              <label>
+                周期
+                <select
+                  className="input"
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value as ChartPeriod)}
+                >
+                  <option value="1h">1h</option>
+                  <option value="4h">4h</option>
+                  <option value="15m">15m</option>
+                </select>
+              </label>
+              <label className="bot-check">
+                <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+                样本外切分
+              </label>
+            </div>
+          )}
+          {mode === 'batch' && (
+            <div className="muted bot-hint">
+              切分：前 60% 训练段 / 后 40% 测试段，用同一参数跑两段。训练赚、测试亏 = 过拟合预警。
+            </div>
+          )}
 
           <h3>信号（可插拔）</h3>
           <div className="bot-signals">
@@ -301,76 +439,121 @@ export function BotView({ onShowMarkers }: Props) {
 
           <div className="bot-actions">
             <button className="btn primary" onClick={run} disabled={loading}>
-              {loading ? '回测中…' : '运行模拟'}
+              {loading ? '运行中…' : '运行'}
             </button>
-            <button className="btn ghost" onClick={showMarkers} disabled={!result}>
-              在图表上标记
-            </button>
+            {mode === 'single' && (
+              <button className="btn ghost" onClick={showMarkers} disabled={!result}>
+                在图表上标记
+              </button>
+            )}
           </div>
         </div>
 
         {/* 右：结果 */}
         <div className="bot-panel">
-          <h3>回测结果</h3>
-          {!ran && !loading && <div className="muted">配置参数后点「运行模拟」，这里会显示 R / 胜率 / 回撤。</div>}
-          {loading && <div className="muted">正在跑模拟…</div>}
+          <h3>结果</h3>
+          {!ran && !loading && <div className="muted">配置参数后点「运行」，这里显示验证结果。</div>}
+          {loading && <div className="muted">正在运行…</div>}
+
+          {/* 单标的 */}
           {result && s && (
             <>
-              <div className="bot-stats">
-                <Stat label="交易笔数" value={String(s.trades)} />
-                <Stat label="胜率" value={fmtPct(s.winRate)} />
-                <Stat label="总 R" value={fmt(s.totalR)} highlight={s.totalR >= 0} />
-                <Stat label="平均 R" value={fmt(s.avgR)} highlight={s.avgR >= 0} />
-                <Stat label="盈亏比" value={s.profitFactor == null ? '—' : fmt(s.profitFactor)} />
-                <Stat label="最大回撤" value={fmtPct(s.maxDrawdown)} />
-                <Stat label="期望 R" value={fmt(s.expectancy)} highlight={s.expectancy >= 0} />
-                <Stat label="平均持仓" value={`${fmt(s.avgHoldBars, 1)} 根`} />
-              </div>
-
+              <StatsGrid s={s} />
               <h4>权益曲线（起始 {fmt(params.startEquity, 0)}）</h4>
               <EquityCurve curve={result.equityCurve} />
-
               <h4>成交明细（{result.trades.length}）</h4>
+              <TradesTable trades={result.trades} limit={120} />
+            </>
+          )}
+
+          {/* 多标的验证 */}
+          {multi && (
+            <>
+              <h4>组合聚合</h4>
+              <StatsGrid s={multi.aggregate} />
+              {multi.split && multi.aggregateTrain && multi.aggregateTest && (
+                <div className="bot-consistency">
+                  <span>训练段总 R：<b className={multi.aggregateTrain.totalR >= 0 ? 'up' : 'down'}>{fmt(multi.aggregateTrain.totalR)}</b></span>
+                  <span>测试段总 R：<b className={multi.aggregateTest.totalR >= 0 ? 'up' : 'down'}>{fmt(multi.aggregateTest.totalR)}</b></span>
+                  <span className={multi.aggregateTrain.totalR > 0 && multi.aggregateTest.totalR > 0 ? 'up' : multi.aggregateTrain.totalR > 0 && multi.aggregateTest.totalR <= 0 ? 'down' : ''}>
+                    {multi.aggregateTrain.totalR > 0 && multi.aggregateTest.totalR > 0
+                      ? '✓ 训练测试同向为正，edge 较稳'
+                      : multi.aggregateTrain.totalR > 0 && multi.aggregateTest.totalR <= 0
+                        ? '⚠ 训练赚测试亏，疑似过拟合'
+                        : '—'}
+                  </span>
+                </div>
+              )}
+              <h4>分标的</h4>
+              <div className="bot-trades">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>标的</th>
+                      <th>交易</th>
+                      <th>胜率</th>
+                      <th>总R</th>
+                      <th>回撤</th>
+                      <th>盈亏比</th>
+                      {multi.split && <th>训练R</th>}
+                      {multi.split && <th>测试R</th>}
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {multi.rows.map((r) => (
+                      <tr key={r.symbol}>
+                        <td>{r.symbol}</td>
+                        <td>{r.full.trades}</td>
+                        <td>{fmtPct(r.full.winRate)}</td>
+                        <td className={r.full.totalR >= 0 ? 'up' : 'down'}>{fmt(r.full.totalR)}</td>
+                        <td>{fmtPct(r.full.maxDrawdown)}</td>
+                        <td>{r.full.profitFactor == null ? '—' : fmt(r.full.profitFactor)}</td>
+                        {multi.split && <td className={(r.train?.totalR ?? 0) >= 0 ? 'up' : 'down'}>{r.train ? fmt(r.train.totalR) : '—'}</td>}
+                        {multi.split && <td className={(r.test?.totalR ?? 0) >= 0 ? 'up' : 'down'}>{r.test ? fmt(r.test.totalR) : '—'}</td>}
+                        <td>{r.skipped ?? 'OK'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* 参数扫描 */}
+          {sweep && (
+            <>
+              <h4>参数敏感度（按总 R 降序，{sweep.length} 组）</h4>
               <div className="bot-trades">
                 <table>
                   <thead>
                     <tr>
                       <th>#</th>
-                      <th>方向</th>
-                      <th>信号</th>
-                      <th>入场</th>
-                      <th>出场</th>
-                      <th>原因</th>
-                      <th>R</th>
-                      <th>盈亏</th>
+                      <th>止盈R</th>
+                      <th>均线</th>
+                      <th>交易</th>
+                      <th>胜率</th>
+                      <th>总R</th>
+                      <th>盈亏比</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.trades.slice(0, 120).map((t, i) => (
-                      <tr key={t.id}>
+                    {sweep.map((row, i) => (
+                      <tr key={i}>
                         <td>{i + 1}</td>
-                        <td className={t.side === 'long' ? 'up' : 'down'}>
-                          {t.side === 'long' ? '多' : '空'}
-                        </td>
-                        <td>{t.signal}</td>
-                        <td>{t.entryPrice.toFixed(2)}</td>
-                        <td>{t.exitPrice.toFixed(2)}</td>
-                        <td>
-                          {t.exitReason === 'stop'
-                            ? '止损'
-                            : t.exitReason === 'target'
-                              ? '止盈'
-                              : '收尾'}
-                        </td>
-                        <td className={t.rMultiple >= 0 ? 'up' : 'down'}>{fmt(t.rMultiple)}R</td>
-                        <td className={t.pnl >= 0 ? 'up' : 'down'}>{fmt(t.pnl)}</td>
+                        <td>{row.params.takeProfitR}</td>
+                        <td>{row.params.trendPeriod}</td>
+                        <td>{row.stats.trades}</td>
+                        <td>{fmtPct(row.stats.winRate)}</td>
+                        <td className={row.stats.totalR >= 0 ? 'up' : 'down'}>{fmt(row.stats.totalR)}</td>
+                        <td>{row.stats.profitFactor == null ? '—' : fmt(row.stats.profitFactor)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {result.trades.length > 120 && (
-                  <div className="muted">仅显示前 120 笔，共 {result.trades.length} 笔。</div>
-                )}
+              </div>
+              <div className="muted bot-hint">
+                看总 R 在 止盈R / 均线 两列上的波动：若总 R 随参数剧烈跳变，说明策略在该样本上脆弱（好参数可能只是过拟合）；若多数组稳定为正，edge 更可信。
               </div>
             </>
           )}
@@ -380,11 +563,40 @@ export function BotView({ onShowMarkers }: Props) {
   );
 }
 
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function TradesTable({ trades, limit }: { trades: BacktestResult['trades']; limit: number }) {
   return (
-    <div className={`bot-stat ${highlight === true ? 'pos' : highlight === false ? 'neg' : ''}`}>
-      <span className="bot-stat-v">{value}</span>
-      <span className="bot-stat-l">{label}</span>
+    <div className="bot-trades">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>方向</th>
+            <th>信号</th>
+            <th>入场</th>
+            <th>出场</th>
+            <th>原因</th>
+            <th>R</th>
+            <th>盈亏</th>
+          </tr>
+        </thead>
+        <tbody>
+          {trades.slice(0, limit).map((t, i) => (
+            <tr key={t.id}>
+              <td>{i + 1}</td>
+              <td className={t.side === 'long' ? 'up' : 'down'}>{t.side === 'long' ? '多' : '空'}</td>
+              <td>{t.signal}</td>
+              <td>{t.entryPrice.toFixed(2)}</td>
+              <td>{t.exitPrice.toFixed(2)}</td>
+              <td>
+                {t.exitReason === 'stop' ? '止损' : t.exitReason === 'target' ? '止盈' : '收尾'}
+              </td>
+              <td className={t.rMultiple >= 0 ? 'up' : 'down'}>{fmt(t.rMultiple)}R</td>
+              <td className={t.pnl >= 0 ? 'up' : 'down'}>{fmt(t.pnl)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {trades.length > limit && <div className="muted">仅显示前 {limit} 笔，共 {trades.length} 笔。</div>}
     </div>
   );
 }

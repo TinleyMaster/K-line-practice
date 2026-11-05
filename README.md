@@ -497,7 +497,13 @@ R 倍数   = 盈亏 / 风险金额
 - **第二层·策略（Strategy）**：把信号 + 趋势过滤 + 仓位规则组合成「开仓意图」（方向 / 入场 / 止损 / 止盈 / 风险）。默认策略 **`pinbar_trend`**：只在趋势方向（慢均线 MA60 多空偏置）允许的拐点 Pinbar 处顺势入场，止损取鼻线（或 ATR 倍数），止盈取 N×R。
 - **第三层·执行器（Executor）**：逐根 K 线模拟成交、管理持仓与止损止盈，**计入手续费与滑点**，产出成交明细 + 权益曲线 + 统计（胜率 / 总 R / 平均 R / 期望 R / 最大回撤 / 盈亏比）。`SimExecutor` 为模拟盘实现；实盘 `LiveExecutor` 只替换「成交」这一步。
 
-入口：顶部 Tab **「自动交易」** —— 选标的 / 市场 / 周期，调信号开关、趋势过滤、止损止盈、风险%，点「运行模拟」看结果，点「在图表上标记」把入场/出场画到 K 线上。引擎代码在 `web/src/engine/strategy/`（`types / indicators / signals / pinbarTrendStrategy / backtest`），复用 `engine/trading.ts` 的 `checkExit / closeTrade / computeQty`。
+入口：顶部 Tab **「自动交易」** —— 三种模式：
+
+- **单标的回测**：选标的 / 市场 / 周期，调信号开关、趋势过滤、止损止盈、风险%，点「运行模拟」看 R / 胜率 / 回撤 / 盈亏比 + 权益曲线 + 成交明细，点「在图表上标记」把入场/出场画到 K 线上。
+- **多标的验证**：一次跑一组标的（逗号分隔），输出组合聚合 + 分标的统计；勾选「样本外切分」会按 前60%训练 / 后40%测试 各跑一遍，并给出**一致性提示**（训练赚、测试也赚 = edge 较稳；训练赚、测试亏 = 过拟合预警）。
+- **参数扫描**：对 `止盈R` / `均线周期` 等做笛卡尔积回测，按总 R 降序排列，观察策略对参数是否敏感（剧烈跳变 = 脆弱 / 过拟合风险；多组稳定为正 = edge 更可信）。
+
+引擎代码在 `web/src/engine/strategy/`（`types / indicators / signals / pinbarTrendStrategy / backtest / validation`），复用 `engine/trading.ts` 的 `checkExit / closeTrade / computeQty`。
 
 ---
 

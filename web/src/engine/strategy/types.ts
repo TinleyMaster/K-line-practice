@@ -120,6 +120,8 @@ export interface BacktestStats {
   expectancy: number; // 每笔期望 R
   maxDrawdown: number; // 权益峰值回撤（小数）
   profitFactor: number | null; // 总盈利 / 总亏损
+  grossProfit: number; // 总盈利（U，用于精确聚合盈亏比）
+  grossLoss: number; // 总亏损（U）
   avgHoldBars: number;
 }
 

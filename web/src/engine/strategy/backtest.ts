@@ -234,6 +234,8 @@ function computeStats(
     expectancy: avgR,
     maxDrawdown: maxDd,
     profitFactor,
+    grossProfit,
+    grossLoss,
     avgHoldBars,
   };
 }

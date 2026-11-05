@@ -3461,3 +3461,36 @@ body.popup-open .ind-panel {
 .bot-trades th:first-child, .bot-trades td:first-child { text-align: left; }
 .bot-trades .up { color: #0ECB81; }
 .bot-trades .down { color: #F6465D; }
+
+.bot-modes { display: flex; gap: 8px; margin-bottom: 12px; }
+.bot-mode {
+  appearance: none;
+  cursor: pointer;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.bot-mode.active { color: #fcd535; border-color: #fcd535; background: rgba(252, 213, 53, 0.1); font-weight: 600; }
+
+.bot-full { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-dim); }
+.bot-full .input { width: 100%; }
+
+.bot-hint { font-size: 11px; margin-top: 6px; line-height: 1.5; }
+
+.bot-consistency {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.bot-consistency .up { color: #0ECB81; font-weight: 600; }
+.bot-consistency .down { color: #F6465D; font-weight: 600; }
