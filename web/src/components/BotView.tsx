@@ -211,8 +211,19 @@ export function BotView({ onShowMarkers }: Props) {
       <div className="bot-head">
         <h2>自动交易（模拟盘验证）</h2>
         <span className="muted">
-          代码按「信号 → 决策 → 执行」分层自动开平仓，不夹带情绪。先验证有没有正期望，实盘适配层后续接入。
+          代码按「信号 → 决策 → 执行」分层自动开平仓，不夹带情绪。本页仅用于研究 / 练习与交易纪律训练。
         </span>
+      </div>
+
+      <div className="notice banner holdout-warn">
+        ⚠ 严禁接入实盘：本页所有内置策略（价格形态 / 资金费率 / 多特征 ML / 非方向风险叠加）均已在严格独立样本外
+        （2025–2026，未参与任何选参）验证失败——hold-out 盈亏比（PF）全部 &lt; 1、总 R 深度为负。
+        <div className="banner-hint">
+          验证方法学：未来函数排查 → 训练/测试切分 → Purged Walk-Forward → 独立时段 hold-out。
+          四类方向性 alpha 在该方法学下全部被否决，说明 4h 主流永续上不存在穿越周期的稳健方向 edge。
+          实盘适配层（LiveExecutor）仅为桩，默认禁用；请勿绕开本警示接交易所 API。
+          本引擎的价值在于「在接实盘前拦住假盈利」的验证框架本身，以及作为交易纪律训练器。
+        </div>
       </div>
 
       <div className="bot-modes">

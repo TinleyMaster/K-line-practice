@@ -1037,6 +1037,23 @@ body {
   white-space: pre-wrap;
 }
 
+/* 自动交易：未过样本外 · 禁止接实盘 的强警示 */
+.notice.banner.holdout-warn {
+  background: repeating-linear-gradient(45deg, rgba(246, 70, 93, 0.16), rgba(246, 70, 93, 0.16) 12px, rgba(246, 70, 93, 0.08) 12px, rgba(246, 70, 93, 0.08) 24px);
+  color: #ff6b81;
+  border: 1.5px solid rgba(246, 70, 93, 0.55);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 12px 14px;
+  line-height: 1.6;
+}
+.notice.banner.holdout-warn .banner-hint {
+  color: #ff95a3;
+  font-weight: 500;
+  opacity: 1;
+}
+
+
 /* ---------- 侧栏账户概览 ---------- */
 .account-panel {
   padding: 10px 12px;
